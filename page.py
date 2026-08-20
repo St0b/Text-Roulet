@@ -1,10 +1,42 @@
 """Compatibility export for the browser page."""
 
 from frontend.desktop import PAGE as _PAGE
+from frontend.apps import APPS_CSS, APPS_HTML, APPS_JS
 
 _DESKTOP_FIX_CSS = """
 <style>
 .task-app.active { border-color: var(--green); background: rgba(54,240,120,.16); }
+.app-grid { position:absolute; top:145px; left:38px; display:grid; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); grid-auto-flow:column; gap:22px 30px; width:202px; max-width:calc(100% - 76px); }
+.workspace > #openApp, .workspace > #openGame { position:absolute; top:38px; left:38px; }
+.workspace > #openGame { left:154px; margin-left:0 !important; }
+.app-grid .settings-icon { position:fixed; top:54px; right:28px; z-index:4; }
+.terminal-content { min-height:0; display:grid; grid-template-rows:1fr auto; padding:16px; background:#020503; color:#7dff9b; font:13px "Courier New",monospace; }
+.terminal-content .terminal-output { height:auto; min-height:0; margin:0; border:0; padding:12px 0; color:#7dff9b; background:transparent; line-height:1.6; }
+.terminal-line { display:flex; align-items:center; gap:8px; border-top:1px solid rgba(54,240,120,.16); padding-top:12px; color:var(--green); }
+.terminal-line .terminal-input { min-height:0; border:0; padding:0; color:#d7ffe0; background:transparent; caret-color:var(--green); }
+.calculator-content { padding:18px; }
+.calc-display { width:100%; height:58px; margin-bottom:12px; border:1px solid var(--line); padding:8px 12px; color:var(--ink); background:#06110a; font-size:28px; text-align:right; }
+.calc-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+.calc-grid button { min-height:48px; border:1px solid var(--line); color:var(--ink); background:#12351e; font-size:17px; }
+.calc-grid button:hover { color:var(--bg); background:var(--green); }
+.calc-grid button[data-calc="/"], .calc-grid button[data-calc="*"], .calc-grid button[data-calc="-"], .calc-grid button[data-calc="+"] { color:var(--green); }
+.calc-zero { grid-column:span 2; }
+.calc-equals { color:var(--bg) !important; background:var(--green) !important; }
+.mines-bar { display:flex; align-items:center; gap:16px; margin-bottom:16px; color:var(--green); }
+.mines-bar strong { flex:1; }
+.mines-bar .app-button { min-height:32px; padding:6px 10px; font-size:10px; }
+.mine-cell[data-count="1"] { color:#55b7ff; }.mine-cell[data-count="2"] { color:#65e06c; }.mine-cell[data-count="3"] { color:#ff756b; }.mine-cell[data-count="4"] { color:#bd8cff; }.mine-cell[data-count="5"] { color:#ffad5c; }
+.app-grid .app-icon.extra { width:86px; height:96px; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
+.app-grid .icon-tile { flex:0 0 60px; }
+.app-grid .app-label { display:block; max-width:86px; min-height:28px; }
+.app-window { border-radius:2px; }
+.app-content { background:linear-gradient(135deg,rgba(10,30,17,.98),rgba(6,17,10,.98)); }
+.app-content h2 { padding-bottom:12px; border-bottom:1px solid var(--line); }
+.app-content small { display:block; margin-top:5px; color:var(--muted); font-size:10px; }
+.file-item, .notification, .store-card, .metric { min-height:58px; display:flex; flex-direction:column; justify-content:center; }
+.app-button { min-height:38px; }
+body.no-animations *, body.no-animations *::before, body.no-animations *::after { animation-duration:0s !important; transition-duration:0s !important; }
+@media (max-width:700px) { .app-grid { top:145px; left:16px; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); gap:18px 22px; max-width:calc(100% - 32px); } }
 .game-window { position:absolute; z-index:5; inset:14% 22%; display:grid; grid-template-rows:44px 1fr; overflow:hidden; border:1px solid var(--line); background:rgba(8,20,12,.98); box-shadow:0 24px 80px rgba(0,0,0,.45); }
 .game-window.hidden { display:none; }
 .game-head { display:flex; align-items:center; gap:14px; padding:0 15px; border-bottom:1px solid var(--line); background:rgba(15,42,23,.92); }
@@ -58,7 +90,25 @@ _DESKTOP_FIX_SCRIPT = r"""
 	function restore() {
 		app.classList.remove("hidden", "minimized");
 		task.classList.add("active");
-		syncSearch();
+		if (!clientId) {
+			request("/api/join", { method: "POST", body: "{}" }).then((data) => {
+				clientId = data.clientId;
+				updateState(data);
+				handleEvents(data.events);
+				poll();
+			}).catch(() => {
+				status.textContent = "сервер недоступен";
+				status.className = "status disconnected";
+			});
+		} else syncSearch();
+	}
+
+	function leaveChat() {
+		if (!clientId) return;
+		navigator.sendBeacon("/api/leave", new Blob([JSON.stringify({ id: clientId })], { type: "application/json" }));
+		clientId = "";
+		isMatched = false;
+		hideSearch();
 	}
 
 	function toggleFromTaskbar() {
@@ -82,6 +132,7 @@ _DESKTOP_FIX_SCRIPT = r"""
 		}
 	};
 	close.onclick = () => {
+		leaveChat();
 		hideSearch();
 		app.classList.add("hidden");
 		task.classList.remove("active");
@@ -127,6 +178,6 @@ _GAME_SCRIPT = r'''
 PAGE = _PAGE.replace(
 	".searching{position:absolute;z-index:2;",
 	".searching{position:absolute;z-index:6;",
-).replace("</style>", _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + "</main>").replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + "</body>")
+).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + "</main>").replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + "</body>")
 
 __all__ = ["PAGE"]
