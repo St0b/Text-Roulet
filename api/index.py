@@ -13,10 +13,11 @@ if str(ROOT) not in sys.path:
 
 from matchmaking import Matchmaking  # noqa: E402
 from page import PAGE  # noqa: E402
+from supabase_matchmaking import SupabaseMatchmaking  # noqa: E402
 
 
 app = Flask(__name__)
-matchmaking = Matchmaking()
+matchmaking = SupabaseMatchmaking.create() or Matchmaking()
 
 
 @app.get("/")

@@ -8,10 +8,11 @@ from urllib.parse import parse_qs, urlparse
 
 from matchmaking import Matchmaking
 from page import PAGE
+from supabase_matchmaking import SupabaseMatchmaking
 
 
 class ChatHandler(BaseHTTPRequestHandler):
-    matchmaking = Matchmaking()
+    matchmaking = SupabaseMatchmaking.create() or Matchmaking()
 
     def send_json(self, payload: dict[str, object], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
