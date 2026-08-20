@@ -58,6 +58,10 @@ class ChatHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/next":
                 self.send_json(self.matchmaking.next_chat(client_id))
                 return
+            if parsed.path == "/api/leave":
+                self.matchmaking.leave(client_id)
+                self.send_json({"ok": True})
+                return
             if parsed.path == "/api/send":
                 text = str(data.get("text", "")).strip()
                 if not self.matchmaking.send(client_id, text):

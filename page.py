@@ -69,6 +69,7 @@ PAGE = r'''<!doctype html>
     async function newChat() { messages.replaceChildren(); addMessage("система", "Ищем случайного собеседника..."); const data = await request("/api/next", {method:"POST", body:JSON.stringify({id:clientId})}); updateState(data); handleEvents(data.events); input.focus(); }
     document.querySelector("#composer").addEventListener("submit", async (event) => { event.preventDefault(); const text = input.value.trim(); if (!text || !isMatched) return; addMessage("вы", text, true); input.value = ""; try { await request("/api/send", {method:"POST", body:JSON.stringify({id:clientId, text})}); } catch (error) { status.textContent = "соединение потеряно"; } });
     document.querySelector("#nextButton").addEventListener("click", () => newChat().catch(() => { status.textContent = "соединение потеряно"; }));
+    window.addEventListener("pagehide", () => { if (clientId) navigator.sendBeacon("/api/leave", new Blob([JSON.stringify({id:clientId})], {type:"application/json"})); });
     request("/api/join", {method:"POST", body:"{}"}).then((data) => { clientId = data.clientId; updateState(data); handleEvents(data.events); poll(); }).catch(() => { status.textContent = "сервер недоступен"; });
   </script>
 </body>

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import secrets
 import threading
+import time
+
+
+CLIENT_TIMEOUT = 12.0
 
 
 class Matchmaking:
@@ -11,6 +15,28 @@ class Matchmaking:
         self.clients: dict[str, dict[str, object]] = {}
         self.waiting: list[str] = []
         self.lock = threading.Lock()
+
+    def _remove_client(self, client_id: str) -> None:
+        client = self.clients.pop(client_id, None)
+        if client is None:
+            return
+        if client_id in self.waiting:
+            self.waiting.remove(client_id)
+        partner_id = client["partner"]
+        if partner_id and partner_id in self.clients:
+            partner = self.clients[partner_id]
+            partner["partner"] = None
+            partner["events"].append({"type": "left"})
+
+    def _remove_stale_clients(self) -> None:
+        deadline = time.monotonic() - CLIENT_TIMEOUT
+        stale_ids = [
+            client_id
+            for client_id, client in self.clients.items()
+            if client["last_seen"] < deadline
+        ]
+        for client_id in stale_ids:
+            self._remove_client(client_id)
 
     def _state(self, client_id: str) -> dict[str, object]:
         client = self.clients[client_id]
@@ -23,8 +49,9 @@ class Matchmaking:
 
     def join(self) -> tuple[str, dict[str, object]]:
         client_id = secrets.token_hex(8)
-        client = {"name": f"visitor-{secrets.token_hex(2)}", "partner": None, "events": []}
+        client = {"name": f"visitor-{secrets.token_hex(2)}", "partner": None, "events": [], "last_seen": time.monotonic()}
         with self.lock:
+            self._remove_stale_clients()
             self.clients[client_id] = client
             self._match(client_id)
             payload = self._state(client_id)
@@ -50,9 +77,11 @@ class Matchmaking:
 
     def next_chat(self, client_id: str) -> dict[str, object]:
         with self.lock:
+            self._remove_stale_clients()
             client = self.clients.get(client_id)
             if client is None:
                 return {"state": "waiting", "partner": "", "events": []}
+            client["last_seen"] = time.monotonic()
             partner_id = client["partner"]
             if partner_id:
                 client["partner"] = None
@@ -65,17 +94,25 @@ class Matchmaking:
 
     def poll(self, client_id: str) -> dict[str, object] | None:
         with self.lock:
+            self._remove_stale_clients()
             if client_id not in self.clients:
                 return None
+            self.clients[client_id]["last_seen"] = time.monotonic()
             payload = self._state(client_id)
             self.clients[client_id]["events"] = []
             return payload
 
+    def leave(self, client_id: str) -> None:
+        with self.lock:
+            self._remove_client(client_id)
+
     def send(self, client_id: str, text: str) -> bool:
         with self.lock:
+            self._remove_stale_clients()
             client = self.clients.get(client_id)
             if not client or not text or not client["partner"]:
                 return False
+            client["last_seen"] = time.monotonic()
             partner = self.clients[client["partner"]]
             partner["events"].append({"type": "message", "from": client["name"], "text": text[:500]})
             return True

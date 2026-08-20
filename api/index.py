@@ -46,6 +46,13 @@ def next_chat() -> Response:
     return jsonify(matchmaking.next_chat(str(data.get("id", ""))))
 
 
+@app.post("/api/leave")
+def leave() -> Response:
+    data = request.get_json(silent=True) or {}
+    matchmaking.leave(str(data.get("id", "")))
+    return jsonify({"ok": True})
+
+
 @app.post("/api/send")
 def send() -> Response:
     data = request.get_json(silent=True) or {}
