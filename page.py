@@ -60,16 +60,16 @@ PAGE = r'''<!doctype html>
   </main>
   <script>
     const messages = document.querySelector("#messages"), input = document.querySelector("#messageInput"), partnerName = document.querySelector("#partnerName"), status = document.querySelector(".status"), send = document.querySelector(".send");
-    let clientId = "", isMatched = false;
+    let clientId = "", isMatched = false, pollInFlight = false, pollDelay = 2500;
     function addMessage(author, text, isYou = false) { const item = document.createElement("article"), meta = document.createElement("div"), bubble = document.createElement("div"); item.className = `message${isYou ? " you" : ""}`; meta.className = "meta"; meta.textContent = author; bubble.className = "bubble"; bubble.textContent = text; item.append(meta, bubble); messages.append(item); messages.scrollTop = messages.scrollHeight; }
-    async function request(path, options = {}) { const response = await fetch(path, { headers:{"Content-Type":"application/json"}, ...options }); if (!response.ok) throw new Error("Сервер недоступен"); return response.json(); }
+    async function request(path, options = {}) { const response = await fetch(path, { cache:"no-store", headers:{"Content-Type":"application/json"}, ...options }); if (!response.ok) throw new Error("Сервер недоступен"); return response.json(); }
     function updateState(data) { isMatched = data.state === "matched"; partnerName.textContent = isMatched ? data.partner : "поиск собеседника..."; status.textContent = isMatched ? "собеседник найден" : "ожидание собеседника"; input.disabled = !isMatched; send.disabled = !isMatched; }
     function handleEvents(events) { for (const event of events) { if (event.type === "matched") { updateState({state:"matched", partner:event.partner}); addMessage("система", "Собеседник найден. Начните разговор."); } else if (event.type === "message") addMessage(event.from, event.text); else if (event.type === "left") { updateState({state:"waiting"}); addMessage("система", "Собеседник покинул чат. Ищем нового..."); } } }
-    async function poll() { if (!clientId) return; try { const data = await request(`/api/poll?id=${encodeURIComponent(clientId)}`); updateState(data); handleEvents(data.events); } catch (error) { status.textContent = "соединение потеряно"; } }
+    async function poll() { if (!clientId || pollInFlight) return; pollInFlight = true; try { const data = await request(`/api/poll?id=${encodeURIComponent(clientId)}`); updateState(data); handleEvents(data.events); pollDelay = 2500; } catch (error) { status.textContent = "повторное подключение..."; pollDelay = Math.min(pollDelay * 2, 15000); } finally { pollInFlight = false; window.setTimeout(poll, pollDelay); } }
     async function newChat() { messages.replaceChildren(); addMessage("система", "Ищем случайного собеседника..."); const data = await request("/api/next", {method:"POST", body:JSON.stringify({id:clientId})}); updateState(data); handleEvents(data.events); input.focus(); }
     document.querySelector("#composer").addEventListener("submit", async (event) => { event.preventDefault(); const text = input.value.trim(); if (!text || !isMatched) return; addMessage("вы", text, true); input.value = ""; try { await request("/api/send", {method:"POST", body:JSON.stringify({id:clientId, text})}); } catch (error) { status.textContent = "соединение потеряно"; } });
     document.querySelector("#nextButton").addEventListener("click", () => newChat().catch(() => { status.textContent = "соединение потеряно"; }));
-    request("/api/join", {method:"POST", body:"{}"}).then((data) => { clientId = data.clientId; updateState(data); handleEvents(data.events); window.setInterval(poll, 700); }).catch(() => { status.textContent = "сервер недоступен"; });
+    request("/api/join", {method:"POST", body:"{}"}).then((data) => { clientId = data.clientId; updateState(data); handleEvents(data.events); poll(); }).catch(() => { status.textContent = "сервер недоступен"; });
   </script>
 </body>
 </html>'''
