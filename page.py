@@ -1,80 +1,132 @@
-"""Browser UI served by the Text Roulette server."""
+"""Compatibility export for the browser page."""
 
-PAGE = r'''<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Text Roulette</title>
-  <style>
-    :root { --ink:#d7ffe0; --muted:#72a57c; --green:#36f078; --deep:#07130c; --panel:rgba(10,30,17,.82); --line:rgba(82,255,126,.2); }
-    * { box-sizing:border-box; }
-    body { margin:0; height:100vh; overflow:hidden; color:var(--ink); background:#050b07; font-family:"Courier New",monospace; }
-    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.2; background-image:linear-gradient(rgba(54,240,120,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(54,240,120,.06) 1px,transparent 1px); background-size:34px 34px; }
-    .shell { width:min(100% - 32px,1020px); height:100vh; min-height:0; margin:auto; padding:28px 0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:18px; }
-    header,.chat,footer { position:relative; z-index:1; }
-    header { display:flex; align-items:end; justify-content:space-between; gap:20px; }
-    .eyebrow { margin:0 0 8px; color:var(--green); font-size:12px; letter-spacing:.16em; }
-    h1 { margin:0; font-size:clamp(28px,5vw,54px); letter-spacing:.04em; }
-    .subtitle { margin:10px 0 0; color:var(--muted); font-size:13px; }
-    .status { border:1px solid var(--line); padding:10px 13px; color:var(--green); font-size:12px; white-space:nowrap; transition:color .2s,border-color .2s; }
-    .status.waiting { color:#f0c936; border-color:rgba(240,201,54,.45); }
-    .status.matched { color:var(--green); border-color:rgba(54,240,120,.45); }
-    .status.reconnecting { color:#ff9f43; border-color:rgba(255,159,67,.45); }
-    .status.disconnected { color:#ff5c5c; border-color:rgba(255,92,92,.45); }
-    .status::before { content:"●"; margin-right:8px; }
-    .chat { min-height:0; height:100%; display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--line); background:var(--panel); box-shadow:0 0 60px rgba(22,180,75,.1); }
-    .chat-top { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid var(--line); }
-    .partner-label { color:var(--muted); font-size:12px; }
-    .partner-name { display:block; margin-top:4px; color:var(--green); font-size:17px; }
-    button { font:inherit; cursor:pointer; }
-    .next { border:1px solid var(--green); padding:10px 14px; color:var(--green); background:transparent; }
-    .next:hover,.send:hover { color:var(--deep); background:var(--green); }
-    .messages { min-height:0; padding:25px 22px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--green) rgba(54,240,120,.08); scrollbar-gutter:stable; }
-    .messages::-webkit-scrollbar { width:8px; }
-    .messages::-webkit-scrollbar-track { background:rgba(54,240,120,.06); border-left:1px solid rgba(82,255,126,.1); }
-    .messages::-webkit-scrollbar-thumb { border:2px solid transparent; border-radius:0; background:var(--green); background-clip:padding-box; }
-    .messages::-webkit-scrollbar-thumb:hover { background:#9affb2; background-clip:padding-box; }
-    .message { max-width:78%; margin-bottom:18px; line-height:1.55; animation:appear .25s ease-out; }
-    .message .meta { margin-bottom:4px; color:var(--muted); font-size:11px; }
-    .message.you { margin-left:auto; text-align:right; }
-    .message.you .meta { color:var(--green); }
-    .bubble { display:inline-block; padding:11px 14px; border:1px solid var(--line); background:rgba(24,68,37,.45); text-align:left; }
-    .you .bubble { border-color:rgba(54,240,120,.45); background:rgba(19,76,37,.3); }
-    .composer { display:grid; grid-template-columns:1fr auto; gap:10px; padding:16px; border-top:1px solid var(--line); }
-    input { width:100%; border:1px solid var(--line); padding:14px; outline:none; color:var(--ink); background:rgba(0,0,0,.24); font:inherit; }
-    input:focus { border-color:var(--green); box-shadow:0 0 0 2px rgba(54,240,120,.1); }
-    input:disabled { opacity:.45; }
-    .send { border:1px solid var(--green); padding:0 19px; color:var(--deep); background:var(--green); }
-    .send:disabled { cursor:not-allowed; opacity:.45; }
-    footer { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; }
-    @keyframes appear { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
-    @media (max-width:620px) { .shell { width:min(100% - 20px,1020px); padding:16px 0; gap:12px; } header { align-items:start; flex-direction:column; gap:14px; } .status { align-self:stretch; } .chat { min-height:0; } .message { max-width:92%; } .chat-top { padding:15px; } .messages { padding:20px 15px; } .composer { padding:10px; } .send { padding:0 13px; } }
-  </style>
-</head>
-<body>
-  <main class="shell">
-    <header><div><p class="eyebrow">ANONYMOUS / TEXT ONLY</p><h1>TEXT ROULETTE</h1><p class="subtitle">Один случайный собеседник. Никаких профилей и картинок.</p></div><div class="status">подключение</div></header>
-    <section class="chat" aria-label="Чат">
-      <div class="chat-top"><div><span class="partner-label">СЕЙЧАС В ЧАТЕ</span><strong class="partner-name" id="partnerName">подключение...</strong></div><button class="next" id="nextButton" type="button">Новый чат ↗</button></div>
-      <div class="messages" id="messages" aria-live="polite"></div>
-      <form class="composer" id="composer"><input id="messageInput" autocomplete="off" maxlength="500" placeholder="Напишите сообщение..." aria-label="Сообщение" disabled><button class="send" type="submit" disabled>Отправить</button></form>
-    </section>
-    <footer><span>TEXT ROULETTE / REAL USERS</span><span>сообщения не сохраняются</span></footer>
-  </main>
-  <script>
-    const messages = document.querySelector("#messages"), input = document.querySelector("#messageInput"), partnerName = document.querySelector("#partnerName"), status = document.querySelector(".status"), send = document.querySelector(".send");
-    let clientId = "", isMatched = false, pollInFlight = false, pollDelay = 1000;
-    function addMessage(author, text, isYou = false) { const item = document.createElement("article"), meta = document.createElement("div"), bubble = document.createElement("div"); item.className = `message${isYou ? " you" : ""}`; meta.className = "meta"; meta.textContent = author; bubble.className = "bubble"; bubble.textContent = text; item.append(meta, bubble); messages.append(item); messages.scrollTop = messages.scrollHeight; }
-    async function request(path, options = {}) { const response = await fetch(path, { cache:"no-store", headers:{"Content-Type":"application/json"}, ...options }); if (!response.ok) throw new Error("Сервер недоступен"); return response.json(); }
-    function updateState(data) { isMatched = data.state === "matched"; partnerName.textContent = isMatched ? data.partner : "поиск собеседника..."; status.textContent = isMatched ? "собеседник найден" : "ожидание собеседника"; status.className = `status ${isMatched ? "matched" : "waiting"}`; input.disabled = !isMatched; send.disabled = !isMatched; }
-    function handleEvents(events) { for (const event of events) { if (event.type === "matched") updateState({state:"matched", partner:event.partner}); else if (event.type === "message") addMessage(event.from, event.text); else if (event.type === "left") updateState({state:"waiting"}); } }
-    async function poll() { if (!clientId || pollInFlight) return; pollInFlight = true; try { const data = await request(`/api/poll?id=${encodeURIComponent(clientId)}`); updateState(data); handleEvents(data.events); pollDelay = 1000; } catch (error) { status.textContent = "повторное подключение..."; status.className = "status reconnecting"; pollDelay = Math.min(pollDelay * 2, 15000); } finally { pollInFlight = false; window.setTimeout(poll, pollDelay); } }
-    async function newChat() { messages.replaceChildren(); const data = await request("/api/next", {method:"POST", body:JSON.stringify({id:clientId})}); updateState(data); handleEvents(data.events); input.focus(); }
-    document.querySelector("#composer").addEventListener("submit", async (event) => { event.preventDefault(); const text = input.value.trim(); if (!text || !isMatched) return; addMessage("вы", text, true); input.value = ""; try { await request("/api/send", {method:"POST", body:JSON.stringify({id:clientId, text})}); } catch (error) { status.textContent = "соединение потеряно"; } });
-    document.querySelector("#nextButton").addEventListener("click", () => newChat().catch(() => { status.textContent = "соединение потеряно"; status.className = "status disconnected"; }));
-    window.addEventListener("pagehide", () => { if (clientId) navigator.sendBeacon("/api/leave", new Blob([JSON.stringify({id:clientId})], {type:"application/json"})); });
-    request("/api/join", {method:"POST", body:"{}"}).then((data) => { clientId = data.clientId; updateState(data); handleEvents(data.events); poll(); }).catch(() => { status.textContent = "сервер недоступен"; status.className = "status disconnected"; });
-  </script>
-</body>
-</html>'''
+from frontend.desktop import PAGE as _PAGE
+
+_DESKTOP_FIX_CSS = """
+<style>
+.task-app.active { border-color: var(--green); background: rgba(54,240,120,.16); }
+.game-window { position:absolute; z-index:5; inset:14% 22%; display:grid; grid-template-rows:44px 1fr; overflow:hidden; border:1px solid var(--line); background:rgba(8,20,12,.98); box-shadow:0 24px 80px rgba(0,0,0,.45); }
+.game-window.hidden { display:none; }
+.game-head { display:flex; align-items:center; gap:14px; padding:0 15px; border-bottom:1px solid var(--line); background:rgba(15,42,23,.92); }
+.game-title { flex:1; color:var(--green); font-size:12px; }
+.game-controls { display:flex; gap:7px; }
+.game-controls button { width:22px; height:22px; padding:0; border:1px solid var(--line); color:var(--muted); background:transparent; }
+.game-controls button:hover { color:var(--ink); border-color:var(--green); }
+.game-body { display:grid; place-items:center; gap:12px; padding:22px; }
+.game-body canvas { width:min(100%,420px); aspect-ratio:1; border:1px solid var(--line); background:#06110a; image-rendering:pixelated; }
+.game-help { margin:0; color:var(--muted); font-size:11px; text-align:center; }
+.game-score { color:var(--green); font-size:12px; }
+@media (max-width:700px) { .game-window { inset:8% 10px 12%; } }
+</style>
+"""
+
+_DESKTOP_FIX_HTML = r'''
+<button class="app-icon" id="openGame" type="button" style="margin-left:24px"><span class="icon-tile">▦</span><span class="app-label">Byte Snake</span></button>
+<section class="game-window hidden" id="gameWindow" aria-label="Byte Snake">
+	<header class="game-head"><span class="game-title">▦ Byte Snake</span><span class="game-controls"><button id="minimizeGame" type="button">−</button><button id="closeGame" type="button">×</button></span></header>
+	<div class="game-body"><span class="game-score" id="gameScore">SCORE 0</span><canvas id="snakeCanvas" width="360" height="360"></canvas><p class="game-help">Стрелки или WASD для движения · Пробел начать заново</p></div>
+</section>
+'''
+
+_DESKTOP_FIX_SCRIPT = r"""
+<script>
+(function () {
+	const app = document.querySelector("#appWindow");
+	const search = document.querySelector("#searching");
+	const task = document.querySelector("#taskApp");
+	const icon = document.querySelector("#openApp");
+	const minimize = document.querySelector("#minimizeApp");
+	const close = document.querySelector("#closeApp");
+	const head = app.querySelector(".window-head");
+	function hideSearch() {
+		search.style.transition = "none";
+		search.classList.remove("visible");
+		search.setAttribute("aria-hidden", "true");
+	}
+	function syncSearch() {
+		const waiting = document.querySelector("#status").classList.contains("waiting");
+		const visible = waiting && !app.classList.contains("hidden") && !app.classList.contains("minimized");
+		if (!visible) {
+			hideSearch();
+			return;
+		}
+		search.style.transition = "opacity .3s";
+		search.classList.add("visible");
+		search.setAttribute("aria-hidden", "false");
+	}
+
+	function restore() {
+		app.classList.remove("hidden", "minimized");
+		task.classList.add("active");
+		syncSearch();
+	}
+
+	function toggleFromTaskbar() {
+		if (app.classList.contains("hidden")) restore();
+		else if (app.classList.contains("minimized")) restore();
+		else {
+			app.classList.add("minimized");
+			task.classList.remove("active");
+			syncSearch();
+		}
+	}
+
+	icon.onclick = restore;
+	task.onclick = toggleFromTaskbar;
+	minimize.onclick = () => {
+		if (app.classList.contains("minimized")) restore();
+		else {
+			hideSearch();
+			app.classList.add("minimized");
+			task.classList.remove("active");
+		}
+	};
+	close.onclick = () => {
+		hideSearch();
+		app.classList.add("hidden");
+		task.classList.remove("active");
+	};
+
+	new MutationObserver(syncSearch).observe(app, { attributes: true, attributeFilter: ["class"] });
+	new MutationObserver(syncSearch).observe(document.querySelector("#status"), { attributes: true, attributeFilter: ["class"] });
+	restore();
+})();
+</script>
+"""
+
+_GAME_SCRIPT = r'''
+<script>
+(function () {
+	const windowEl = document.querySelector("#gameWindow");
+	const canvas = document.querySelector("#snakeCanvas");
+	const context = canvas.getContext("2d");
+	const scoreLabel = document.querySelector("#gameScore");
+	const grid = 18;
+	const cell = canvas.width / grid;
+	let snake = [{ x: 9, y: 9 }], food = { x: 4, y: 5 }, direction = { x: 1, y: 0 }, next = direction, score = 0, timer;
+	function draw() {
+		context.fillStyle = "#06110a";
+		context.fillRect(0, 0, canvas.width, canvas.height);
+		context.strokeStyle = "rgba(54,240,120,.08)";
+		for (let i = 0; i <= grid; i++) { context.beginPath(); context.moveTo(i * cell, 0); context.lineTo(i * cell, canvas.height); context.stroke(); context.beginPath(); context.moveTo(0, i * cell); context.lineTo(canvas.width, i * cell); context.stroke(); }
+		context.fillStyle = "#f0c936"; context.fillRect(food.x * cell + 3, food.y * cell + 3, cell - 6, cell - 6);
+		snake.forEach((part, index) => { context.fillStyle = index ? "#239f50" : "#36f078"; context.fillRect(part.x * cell + 2, part.y * cell + 2, cell - 4, cell - 4); });
+	}
+	function reset() { snake = [{ x: 9, y: 9 }]; food = { x: 4, y: 5 }; direction = { x: 1, y: 0 }; next = direction; score = 0; scoreLabel.textContent = "SCORE 0"; draw(); clearInterval(timer); timer = setInterval(step, 130); }
+	function step() { direction = next; const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y }; if (head.x < 0 || head.y < 0 || head.x >= grid || head.y >= grid || snake.some(part => part.x === head.x && part.y === head.y)) { reset(); return; } snake.unshift(head); if (head.x === food.x && head.y === food.y) { score++; scoreLabel.textContent = `SCORE ${score}`; do { food = { x: Math.floor(Math.random() * grid), y: Math.floor(Math.random() * grid) }; } while (snake.some(part => part.x === food.x && part.y === food.y)); } else snake.pop(); draw(); }
+	function openGame() { windowEl.classList.remove("hidden"); reset(); }
+	document.querySelector("#openGame").onclick = openGame;
+	document.querySelector("#minimizeGame").onclick = () => windowEl.classList.toggle("hidden");
+	document.querySelector("#closeGame").onclick = () => { windowEl.classList.add("hidden"); clearInterval(timer); };
+	document.addEventListener("keydown", event => { const keys = { ArrowUp: { x: 0, y: -1 }, w: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 }, s: { x: 0, y: 1 }, ArrowLeft: { x: -1, y: 0 }, a: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, d: { x: 1, y: 0 } }; const value = keys[event.key]; if (value && value.x !== -direction.x && value.y !== -direction.y) { next = value; event.preventDefault(); } if (event.code === "Space" && !windowEl.classList.contains("hidden")) reset(); });
+	draw();
+})();
+</script>
+'''
+
+PAGE = _PAGE.replace(
+	".searching{position:absolute;z-index:2;",
+	".searching{position:absolute;z-index:6;",
+).replace("</style>", _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + "</main>").replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + "</body>")
+
+__all__ = ["PAGE"]
