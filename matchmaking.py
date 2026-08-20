@@ -27,7 +27,9 @@ class Matchmaking:
         with self.lock:
             self.clients[client_id] = client
             self._match(client_id)
-            return client_id, self._state(client_id)
+            payload = self._state(client_id)
+            client["events"] = []
+            return client_id, payload
 
     def _match(self, client_id: str) -> None:
         if client_id in self.waiting:
@@ -57,7 +59,9 @@ class Matchmaking:
                 self.clients[partner_id]["partner"] = None
                 self.clients[partner_id]["events"].append({"type": "left"})
             self._match(client_id)
-            return self._state(client_id)
+            payload = self._state(client_id)
+            client["events"] = []
+            return payload
 
     def poll(self, client_id: str) -> dict[str, object] | None:
         with self.lock:
