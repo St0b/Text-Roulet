@@ -9,7 +9,9 @@ _DESKTOP_FIX_CSS = """
 .app-grid { position:absolute; top:145px; left:38px; display:grid; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); grid-auto-flow:column; gap:22px 30px; width:202px; max-width:calc(100% - 76px); }
 .workspace > #openApp, .workspace > #openGame { position:absolute; top:38px; left:38px; }
 .workspace > #openGame { left:154px; margin-left:0 !important; }
-.app-grid .settings-icon { position:fixed; top:54px; right:28px; z-index:4; }
+.app-grid .settings-icon { position:fixed; right:82px; bottom:7px; z-index:12; width:auto; height:38px; display:flex; flex-direction:row; align-items:center; gap:6px; }
+.app-grid .settings-icon .icon-tile { width:30px; height:30px; margin:0; font-size:16px; }
+.app-grid .settings-icon .app-label { min-height:0; color:var(--muted); }
 .terminal-content { min-height:0; display:grid; grid-template-rows:1fr auto; padding:16px; background:#020503; color:#7dff9b; font:13px "Courier New",monospace; }
 .terminal-content .terminal-output { height:auto; min-height:0; margin:0; border:0; padding:12px 0; color:#7dff9b; background:transparent; line-height:1.6; }
 .terminal-line { display:flex; align-items:center; gap:8px; border-top:1px solid rgba(54,240,120,.16); padding-top:12px; color:var(--green); }
@@ -36,7 +38,7 @@ _DESKTOP_FIX_CSS = """
 .file-item, .notification, .store-card, .metric { min-height:58px; display:flex; flex-direction:column; justify-content:center; }
 .app-button { min-height:38px; }
 body.no-animations *, body.no-animations *::before, body.no-animations *::after { animation-duration:0s !important; transition-duration:0s !important; }
-@media (max-width:700px) { .app-grid { top:145px; left:16px; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); gap:18px 22px; max-width:calc(100% - 32px); } }
+@media (max-width:700px) { .app-grid { top:145px; left:38px; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); gap:18px 30px; max-width:calc(100% - 76px); } }
 .game-window { position:absolute; z-index:5; inset:14% 22%; display:grid; grid-template-rows:44px 1fr; overflow:hidden; border:1px solid var(--line); background:rgba(8,20,12,.98); box-shadow:0 24px 80px rgba(0,0,0,.45); }
 .game-window.hidden { display:none; }
 .game-head { display:flex; align-items:center; gap:14px; padding:0 15px; border-bottom:1px solid var(--line); background:rgba(15,42,23,.92); }
@@ -175,9 +177,38 @@ _GAME_SCRIPT = r'''
 </script>
 '''
 
+_TOUCH_GAMES_SCRIPT = r'''
+<script>
+(function () {
+	let startX = 0;
+	let startY = 0;
+	function bindSwipe(element) {
+		if (!element) return;
+		element.addEventListener("touchstart", (event) => {
+			const touch = event.changedTouches[0];
+			startX = touch.clientX;
+			startY = touch.clientY;
+		}, { passive: true });
+		element.addEventListener("touchend", (event) => {
+			const touch = event.changedTouches[0];
+			const dx = touch.clientX - startX;
+			const dy = touch.clientY - startY;
+			if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+			const key = Math.abs(dx) > Math.abs(dy)
+				? (dx > 0 ? "ArrowRight" : "ArrowLeft")
+				: (dy > 0 ? "ArrowDown" : "ArrowUp");
+			document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+		});
+	}
+	bindSwipe(document.querySelector("#snakeCanvas"));
+	bindSwipe(document.querySelector("#twoBoard"));
+})();
+</script>
+'''
+
 PAGE = _PAGE.replace(
 	".searching{position:absolute;z-index:2;",
 	".searching{position:absolute;z-index:6;",
-).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + "</main>").replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + "</body>")
+).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + "</main>").replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + _TOUCH_GAMES_SCRIPT + "</body>")
 
 __all__ = ["PAGE"]
