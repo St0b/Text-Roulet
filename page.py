@@ -9,9 +9,14 @@ _DESKTOP_FIX_CSS = """
 .app-grid { position:absolute; top:145px; left:38px; display:grid; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); grid-auto-flow:column; gap:22px 30px; width:202px; max-width:calc(100% - 76px); }
 .workspace > #openApp, .workspace > #openGame { position:absolute; top:38px; left:38px; }
 .workspace > #openGame { left:154px; margin-left:0 !important; }
-.app-grid .settings-icon { position:fixed; right:82px; bottom:7px; z-index:12; width:auto; height:38px; display:flex; flex-direction:row; align-items:center; gap:6px; }
-.app-grid .settings-icon .icon-tile { width:30px; height:30px; margin:0; font-size:16px; }
-.app-grid .settings-icon .app-label { min-height:0; color:var(--muted); }
+.settings-task { display:inline-grid; place-items:center; width:32px; height:32px; margin-right:10px; border:1px solid var(--line); color:var(--muted); background:rgba(18,53,28,.7); }
+.settings-task:hover, .settings-task.active { color:var(--green); border-color:var(--green); background:rgba(54,240,120,.16); }
+.taskbar { position:absolute; }
+.taskbar .clock { position:absolute; right:16px; }
+.taskbar .settings-task { position:absolute; right:58px; margin-right:0; }
+.app-window[data-window="settings"] { position:fixed; z-index:20; inset:auto 16px 58px auto; width:286px; height:auto; max-height:calc(100vh - 80px); transform:translateY(14px); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; }
+.app-window[data-window="settings"]:not(.hidden) { transform:translateY(0); opacity:1; pointer-events:auto; }
+.app-window[data-window="settings"] .app-content { padding:18px; }
 .terminal-content { min-height:0; display:grid; grid-template-rows:1fr auto; padding:16px; background:#020503; color:#7dff9b; font:13px "Courier New",monospace; }
 .terminal-content .terminal-output { height:auto; min-height:0; margin:0; border:0; padding:12px 0; color:#7dff9b; background:transparent; line-height:1.6; }
 .terminal-line { display:flex; align-items:center; gap:8px; border-top:1px solid rgba(54,240,120,.16); padding-top:12px; color:var(--green); }
@@ -38,7 +43,7 @@ _DESKTOP_FIX_CSS = """
 .file-item, .notification, .store-card, .metric { min-height:58px; display:flex; flex-direction:column; justify-content:center; }
 .app-button { min-height:38px; }
 body.no-animations *, body.no-animations *::before, body.no-animations *::after { animation-duration:0s !important; transition-duration:0s !important; }
-@media (max-width:700px) { .app-grid { top:145px; left:38px; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); gap:18px 30px; max-width:calc(100% - 76px); } }
+@media (max-width:700px) { .app-grid { top:145px; left:38px; grid-template-columns:repeat(2,86px); grid-template-rows:repeat(4,96px); gap:18px 30px; max-width:calc(100% - 76px); } .app-window[data-window="settings"] { right:10px; bottom:58px; width:min(286px,calc(100vw - 20px)); } }
 .game-window { position:absolute; z-index:5; inset:14% 22%; display:grid; grid-template-rows:44px 1fr; overflow:hidden; border:1px solid var(--line); background:rgba(8,20,12,.98); box-shadow:0 24px 80px rgba(0,0,0,.45); }
 .game-window.hidden { display:none; }
 .game-head { display:flex; align-items:center; gap:14px; padding:0 15px; border-bottom:1px solid var(--line); background:rgba(15,42,23,.92); }
@@ -62,6 +67,8 @@ _DESKTOP_FIX_HTML = r'''
 </section>
 '''
 
+_SETTINGS_TASKBAR = '<button class="settings-task" id="settingsTask" type="button" aria-label="Настройки">⚙</button>'
+
 _DESKTOP_FIX_SCRIPT = r"""
 <script>
 (function () {
@@ -71,6 +78,8 @@ _DESKTOP_FIX_SCRIPT = r"""
 	const icon = document.querySelector("#openApp");
 	const minimize = document.querySelector("#minimizeApp");
 	const close = document.querySelector("#closeApp");
+	const settingsTask = document.querySelector("#settingsTask");
+	const settingsWindow = document.querySelector('[data-window="settings"]');
 	const head = app.querySelector(".window-head");
 	function hideSearch() {
 		search.style.transition = "none";
@@ -139,10 +148,15 @@ _DESKTOP_FIX_SCRIPT = r"""
 		app.classList.add("hidden");
 		task.classList.remove("active");
 	};
+	settingsTask.onclick = () => {
+		const isOpen = !settingsWindow.classList.contains("hidden");
+		settingsWindow.classList.toggle("hidden", isOpen);
+		settingsTask.classList.toggle("active", !isOpen);
+	};
+	settingsWindow.querySelector("[data-close-window]").addEventListener("click", () => settingsTask.classList.remove("active"));
 
 	new MutationObserver(syncSearch).observe(app, { attributes: true, attributeFilter: ["class"] });
 	new MutationObserver(syncSearch).observe(document.querySelector("#status"), { attributes: true, attributeFilter: ["class"] });
-	restore();
 })();
 </script>
 """
@@ -207,8 +221,14 @@ _TOUCH_GAMES_SCRIPT = r'''
 '''
 
 PAGE = _PAGE.replace(
+	'<section class="window" id="appWindow">',
+	'<section class="window hidden" id="appWindow">',
+).replace(
+	'request("/api/join",{method:"POST",body:"{}"}).then(data=>{clientId=data.clientId;updateState(data);handleEvents(data.events);poll()}).catch(()=>{status.textContent="сервер недоступен";status.className="status disconnected"});',
+	'',
+).replace(
 	".searching{position:absolute;z-index:2;",
 	".searching{position:absolute;z-index:6;",
-).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + "</main>").replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + _TOUCH_GAMES_SCRIPT + "</body>")
+).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + "</main>").replace('<span class="clock" id="clock"></span>', _SETTINGS_TASKBAR + '<span class="clock" id="clock"></span>').replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + _TOUCH_GAMES_SCRIPT + "</body>")
 
 __all__ = ["PAGE"]

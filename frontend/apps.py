@@ -16,7 +16,6 @@ APPS_HTML = r'''
 <button class="app-icon extra" data-open-app="profile"><span class="icon-tile">◎</span><span class="app-label">Profile</span></button>
 <button class="app-icon extra" data-open-app="monitor"><span class="icon-tile">▥</span><span class="app-label">Monitor</span></button>
 <button class="app-icon extra" data-open-app="notifications"><span class="icon-tile">!</span><span class="app-label">Alerts</span></button>
-<button class="app-icon extra settings-icon" data-open-app="settings"><span class="icon-tile">⚙</span><span class="app-label">Settings</span></button>
 </div>
 <div id="appWindows">
 <section class="app-window hidden" data-window="notes"><header class="app-window-head"><span class="app-window-title">▤ Notes</span><button data-close-window>×</button></header><div class="app-content"><h2>Scratchpad</h2><textarea id="notesText" placeholder="Запишите что-нибудь..."></textarea><div class="app-row"><button class="app-button" id="saveNotes">Сохранить</button><span id="notesSaved"></span></div></div></section>
