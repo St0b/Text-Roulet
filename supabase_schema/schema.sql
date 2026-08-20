@@ -69,14 +69,15 @@ declare
     v_room_id uuid;
     v_last_id bigint;
     v_partner text := '';
+    v_display_name text;
     v_messages jsonb;
 begin
-    select room_id, last_message_id into v_room_id, v_last_id from chat_members where client_id = p_client_id;
+    select room_id, last_message_id, display_name into v_room_id, v_last_id, v_display_name from chat_members where client_id = p_client_id;
     if v_room_id is null then return null; end if;
     update chat_members set last_seen = now() where client_id = p_client_id;
     select display_name into v_partner from chat_members where room_id = v_room_id and client_id <> p_client_id limit 1;
     select coalesce(jsonb_agg(jsonb_build_object('type','message','from',m.sender_id,'text',m.body) order by m.id), '[]'::jsonb)
-    into v_messages from chat_messages m where m.room_id = v_room_id and m.id > v_last_id and m.sender_id <> p_client_id;
+    into v_messages from chat_messages m where m.room_id = v_room_id and m.id > v_last_id and m.sender_id <> v_display_name;
     select coalesce(max(id), v_last_id) into v_last_id from chat_messages where room_id = v_room_id;
     update chat_members set last_message_id = v_last_id where client_id = p_client_id;
     return jsonb_build_object('state', case when v_partner is null or v_partner = '' then 'waiting' else 'matched' end,
