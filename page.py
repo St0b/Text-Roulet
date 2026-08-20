@@ -17,7 +17,11 @@ PAGE = r'''<!doctype html>
     .eyebrow { margin:0 0 8px; color:var(--green); font-size:12px; letter-spacing:.16em; }
     h1 { margin:0; font-size:clamp(28px,5vw,54px); letter-spacing:.04em; }
     .subtitle { margin:10px 0 0; color:var(--muted); font-size:13px; }
-    .status { border:1px solid var(--line); padding:10px 13px; color:var(--green); font-size:12px; white-space:nowrap; }
+    .status { border:1px solid var(--line); padding:10px 13px; color:var(--green); font-size:12px; white-space:nowrap; transition:color .2s,border-color .2s; }
+    .status.waiting { color:#f0c936; border-color:rgba(240,201,54,.45); }
+    .status.matched { color:var(--green); border-color:rgba(54,240,120,.45); }
+    .status.reconnecting { color:#ff9f43; border-color:rgba(255,159,67,.45); }
+    .status.disconnected { color:#ff5c5c; border-color:rgba(255,92,92,.45); }
     .status::before { content:"●"; margin-right:8px; }
     .chat { min-height:0; height:100%; display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--line); background:var(--panel); box-shadow:0 0 60px rgba(22,180,75,.1); }
     .chat-top { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid var(--line); }
@@ -63,14 +67,14 @@ PAGE = r'''<!doctype html>
     let clientId = "", isMatched = false, pollInFlight = false, pollDelay = 1000;
     function addMessage(author, text, isYou = false) { const item = document.createElement("article"), meta = document.createElement("div"), bubble = document.createElement("div"); item.className = `message${isYou ? " you" : ""}`; meta.className = "meta"; meta.textContent = author; bubble.className = "bubble"; bubble.textContent = text; item.append(meta, bubble); messages.append(item); messages.scrollTop = messages.scrollHeight; }
     async function request(path, options = {}) { const response = await fetch(path, { cache:"no-store", headers:{"Content-Type":"application/json"}, ...options }); if (!response.ok) throw new Error("Сервер недоступен"); return response.json(); }
-    function updateState(data) { isMatched = data.state === "matched"; partnerName.textContent = isMatched ? data.partner : "поиск собеседника..."; status.textContent = isMatched ? "собеседник найден" : "ожидание собеседника"; input.disabled = !isMatched; send.disabled = !isMatched; }
-    function handleEvents(events) { for (const event of events) { if (event.type === "matched") { updateState({state:"matched", partner:event.partner}); addMessage("система", "Собеседник найден. Начните разговор."); } else if (event.type === "message") addMessage(event.from, event.text); else if (event.type === "left") { updateState({state:"waiting"}); addMessage("система", "Собеседник покинул чат. Ищем нового..."); } } }
-    async function poll() { if (!clientId || pollInFlight) return; pollInFlight = true; try { const data = await request(`/api/poll?id=${encodeURIComponent(clientId)}`); updateState(data); handleEvents(data.events); pollDelay = 1000; } catch (error) { status.textContent = "повторное подключение..."; pollDelay = Math.min(pollDelay * 2, 15000); } finally { pollInFlight = false; window.setTimeout(poll, pollDelay); } }
-    async function newChat() { messages.replaceChildren(); addMessage("система", "Ищем случайного собеседника..."); const data = await request("/api/next", {method:"POST", body:JSON.stringify({id:clientId})}); updateState(data); handleEvents(data.events); input.focus(); }
+    function updateState(data) { isMatched = data.state === "matched"; partnerName.textContent = isMatched ? data.partner : "поиск собеседника..."; status.textContent = isMatched ? "собеседник найден" : "ожидание собеседника"; status.className = `status ${isMatched ? "matched" : "waiting"}`; input.disabled = !isMatched; send.disabled = !isMatched; }
+    function handleEvents(events) { for (const event of events) { if (event.type === "matched") updateState({state:"matched", partner:event.partner}); else if (event.type === "message") addMessage(event.from, event.text); else if (event.type === "left") updateState({state:"waiting"}); } }
+    async function poll() { if (!clientId || pollInFlight) return; pollInFlight = true; try { const data = await request(`/api/poll?id=${encodeURIComponent(clientId)}`); updateState(data); handleEvents(data.events); pollDelay = 1000; } catch (error) { status.textContent = "повторное подключение..."; status.className = "status reconnecting"; pollDelay = Math.min(pollDelay * 2, 15000); } finally { pollInFlight = false; window.setTimeout(poll, pollDelay); } }
+    async function newChat() { messages.replaceChildren(); const data = await request("/api/next", {method:"POST", body:JSON.stringify({id:clientId})}); updateState(data); handleEvents(data.events); input.focus(); }
     document.querySelector("#composer").addEventListener("submit", async (event) => { event.preventDefault(); const text = input.value.trim(); if (!text || !isMatched) return; addMessage("вы", text, true); input.value = ""; try { await request("/api/send", {method:"POST", body:JSON.stringify({id:clientId, text})}); } catch (error) { status.textContent = "соединение потеряно"; } });
-    document.querySelector("#nextButton").addEventListener("click", () => newChat().catch(() => { status.textContent = "соединение потеряно"; }));
+    document.querySelector("#nextButton").addEventListener("click", () => newChat().catch(() => { status.textContent = "соединение потеряно"; status.className = "status disconnected"; }));
     window.addEventListener("pagehide", () => { if (clientId) navigator.sendBeacon("/api/leave", new Blob([JSON.stringify({id:clientId})], {type:"application/json"})); });
-    request("/api/join", {method:"POST", body:"{}"}).then((data) => { clientId = data.clientId; updateState(data); handleEvents(data.events); poll(); }).catch(() => { status.textContent = "сервер недоступен"; });
+    request("/api/join", {method:"POST", body:"{}"}).then((data) => { clientId = data.clientId; updateState(data); handleEvents(data.events); poll(); }).catch(() => { status.textContent = "сервер недоступен"; status.className = "status disconnected"; });
   </script>
 </body>
 </html>'''

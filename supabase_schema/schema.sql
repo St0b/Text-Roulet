@@ -86,12 +86,13 @@ $$;
 
 create or replace function public.send_chat_message(p_client_id text, p_text text)
 returns jsonb language plpgsql security definer set search_path = public as $$
-declare v_room_id uuid; v_member_count integer;
+declare v_room_id uuid; v_member_count integer; v_sender_name text;
 begin
     select room_id into v_room_id from chat_members where client_id = p_client_id;
     select count(*) into v_member_count from chat_members where room_id = v_room_id;
+    select display_name into v_sender_name from chat_members where client_id = p_client_id;
     if v_room_id is null or v_member_count <> 2 or length(trim(p_text)) = 0 then return jsonb_build_object('ok', false); end if;
-    insert into chat_messages(room_id, sender_id, body) values (v_room_id, p_client_id, left(trim(p_text), 500));
+    insert into chat_messages(room_id, sender_id, body) values (v_room_id, v_sender_name, left(trim(p_text), 500));
     update chat_members set last_seen = now() where client_id = p_client_id;
     return jsonb_build_object('ok', true);
 end;
@@ -102,9 +103,10 @@ returns jsonb language plpgsql security definer set search_path = public as $$
 declare
     v_old_room_id uuid;
     v_new_room_id uuid;
+    v_display_name text;
     v_partner_name text := '';
 begin
-    select room_id into v_old_room_id from chat_members where client_id = p_client_id for update;
+    select room_id, display_name into v_old_room_id, v_display_name from chat_members where client_id = p_client_id for update;
     if v_old_room_id is not null then
         delete from chat_members where client_id = p_client_id;
         update chat_rooms set status = 'closed', closed_at = now() where id = v_old_room_id;
@@ -115,12 +117,12 @@ begin
     if v_new_room_id is null then
         insert into chat_rooms(status) values ('waiting') returning id into v_new_room_id;
         insert into chat_members(room_id, client_id, display_name)
-        values (v_new_room_id, p_client_id, 'visitor-' || left(p_client_id, 4));
+        values (v_new_room_id, p_client_id, v_display_name);
         return jsonb_build_object('state', 'waiting', 'partner', '', 'events', '[]'::jsonb);
     end if;
     select display_name into v_partner_name from chat_members where room_id = v_new_room_id limit 1;
     insert into chat_members(room_id, client_id, display_name)
-    values (v_new_room_id, p_client_id, 'visitor-' || left(p_client_id, 4));
+    values (v_new_room_id, p_client_id, v_display_name);
     update chat_rooms set status = 'active' where id = v_new_room_id;
     return jsonb_build_object('state', 'matched', 'partner', v_partner_name,
         'events', jsonb_build_array(jsonb_build_object('type', 'matched', 'partner', v_partner_name)));

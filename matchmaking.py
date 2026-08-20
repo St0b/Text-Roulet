@@ -87,6 +87,7 @@ class Matchmaking:
                 client["partner"] = None
                 self.clients[partner_id]["partner"] = None
                 self.clients[partner_id]["events"].append({"type": "left"})
+            client["events"] = []
             self._match(client_id)
             payload = self._state(client_id)
             client["events"] = []
