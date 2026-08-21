@@ -36,6 +36,21 @@ _DESKTOP_FIX_CSS = """
 .app-grid .app-icon.extra { width:86px; height:96px; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
 .app-grid .icon-tile { flex:0 0 60px; }
 .app-grid .app-label { display:block; max-width:86px; min-height:28px; }
+.app-grid [data-open-app="twenty"] .icon-tile { font-size:13px; letter-spacing:-.04em; }
+.desktop-menu { position:fixed; z-index:50; display:none; min-width:210px; padding:7px; border:1px solid var(--line); background:rgba(5,15,9,.97); box-shadow:0 18px 45px rgba(0,0,0,.45); }
+.desktop-menu.visible { display:block; animation:menu-in .16s ease-out; }
+.desktop-menu-title { padding:8px 10px 7px; border-bottom:1px solid var(--line); color:var(--muted); font-size:10px; letter-spacing:.08em; }
+.desktop-menu button { display:block; width:100%; border:0; padding:9px 10px; color:var(--ink); background:transparent; text-align:left; font-size:12px; }
+.desktop-menu button:hover { color:var(--bg); background:var(--green); }
+.desktop.wallpaper-forest { background:radial-gradient(circle at 50% 10%,rgba(40,156,75,.2),transparent 38%),linear-gradient(135deg,#07100b,#0a1910 55%,#061009); }
+.desktop.wallpaper-grid { background:linear-gradient(rgba(54,240,120,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(54,240,120,.09) 1px,transparent 1px),#07100b; background-size:36px 36px; }
+.desktop.wallpaper-grid:before { opacity:.04; }
+.desktop.wallpaper-terminal { background:radial-gradient(circle at 82% 22%,rgba(54,240,120,.18),transparent 18%),linear-gradient(115deg,#020503 0%,#0a1b10 48%,#03140b 100%); }
+.desktop.wallpaper-terminal:before { opacity:.08; background-image:linear-gradient(rgba(54,240,120,.2) 1px,transparent 1px); background-size:100% 5px; }
+.wallpaper-row { display:grid !important; grid-template-columns:repeat(3,1fr); gap:5px; }
+.wallpaper-row button { min-height:34px; padding:4px; border:1px solid var(--line); text-align:center; }
+.shortcut-dragging { z-index:15; opacity:.8; cursor:grabbing !important; }
+@keyframes menu-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
 .app-window { border-radius:2px; }
 .app-content { background:linear-gradient(135deg,rgba(10,30,17,.98),rgba(6,17,10,.98)); }
 .app-content h2 { padding-bottom:12px; border-bottom:1px solid var(--line); }
@@ -68,6 +83,62 @@ _DESKTOP_FIX_HTML = r'''
 '''
 
 _SETTINGS_TASKBAR = '<button class="settings-task" id="settingsTask" type="button" aria-label="Настройки">⚙</button>'
+
+_DESKTOP_MENU_HTML = r'''
+<div class="desktop-menu" id="desktopMenu" role="menu">
+	<div class="desktop-menu-title">РАБОЧИЙ СТОЛ</div>
+	<button id="menuSettings" type="button">Открыть настройки</button>
+	<div class="desktop-menu-title">ОБОИ</div>
+	<div class="wallpaper-row"><button data-wallpaper="forest" type="button">Лес</button><button data-wallpaper="grid" type="button">Сетка</button><button data-wallpaper="terminal" type="button">Scanlines</button></div>
+</div>
+'''
+
+_DESKTOP_MENU_SCRIPT = r'''
+<script>
+(function () {
+	const desktop = document.querySelector(".desktop");
+	const workspace = document.querySelector(".workspace");
+	const menu = document.querySelector("#desktopMenu");
+	const shortcuts = [...document.querySelectorAll(".app-icon")];
+	const saved = JSON.parse(localStorage.getItem("greenos-shortcuts") || "{}");
+	const storedWallpaper = localStorage.getItem("greenos-wallpaper");
+	const wallpaper = ["forest", "grid", "terminal"].includes(storedWallpaper) ? storedWallpaper : "forest";
+	function setWallpaper(name) { desktop.classList.remove("wallpaper-forest", "wallpaper-grid", "wallpaper-terminal"); desktop.classList.add(`wallpaper-${name}`); localStorage.setItem("greenos-wallpaper", name); }
+	setWallpaper(wallpaper);
+	function openMenu(x, y) { menu.style.left = `${Math.min(x, innerWidth - 230)}px`; menu.style.top = `${Math.min(y, innerHeight - 180)}px`; menu.classList.add("visible"); }
+	desktop.addEventListener("contextmenu", (event) => { if (event.target.closest("button, section, input, textarea")) return; event.preventDefault(); openMenu(event.clientX, event.clientY); });
+	document.addEventListener("click", (event) => { if (!event.target.closest(".desktop-menu")) menu.classList.remove("visible"); });
+	document.querySelector("#menuSettings").onclick = () => { menu.classList.remove("visible"); document.querySelector("#settingsTask").click(); };
+	document.querySelectorAll("[data-wallpaper]").forEach(button => button.onclick = () => { setWallpaper(button.dataset.wallpaper); menu.classList.remove("visible"); });
+	function applySavedPosition(icon) {
+		const key = icon.id || icon.dataset.openApp;
+		if (!saved[key]) return;
+		icon.style.left = `${saved[key].x}px`; icon.style.top = `${saved[key].y}px`; icon.style.position = "absolute";
+	}
+	shortcuts.forEach(applySavedPosition);
+	shortcuts.forEach(icon => {
+		let startX = 0, startY = 0, grabX = 0, grabY = 0, moved = false;
+		icon.addEventListener("pointerdown", event => { if (event.button !== 0) return; moved = false; startX = event.clientX; startY = event.clientY; const rect = icon.getBoundingClientRect(); grabX = event.clientX - rect.left; grabY = event.clientY - rect.top; icon.setPointerCapture(event.pointerId); });
+		icon.addEventListener("pointermove", event => {
+			if (!icon.hasPointerCapture(event.pointerId)) return;
+			const dx = event.clientX - startX, dy = event.clientY - startY;
+			if (!moved && Math.hypot(dx, dy) < 6) return;
+			moved = true; icon.classList.add("shortcut-dragging");
+			const bounds = workspace.getBoundingClientRect();
+			const x = Math.max(0, Math.min(event.clientX - bounds.left - grabX, bounds.width - icon.offsetWidth));
+			const y = Math.max(0, Math.min(event.clientY - bounds.top - grabY, bounds.height - icon.offsetHeight));
+			icon.style.position = "absolute"; icon.style.left = `${x}px`; icon.style.top = `${y}px`;
+		});
+		icon.addEventListener("pointerup", event => {
+			if (!icon.hasPointerCapture(event.pointerId)) return;
+			icon.releasePointerCapture(event.pointerId); icon.classList.remove("shortcut-dragging");
+			if (moved) { const key = icon.id || icon.dataset.openApp; saved[key] = { x: parseInt(icon.style.left), y: parseInt(icon.style.top) }; localStorage.setItem("greenos-shortcuts", JSON.stringify(saved)); icon.dataset.skipClick = "true"; }
+		});
+		icon.addEventListener("click", event => { if (icon.dataset.skipClick === "true") { delete icon.dataset.skipClick; event.preventDefault(); event.stopImmediatePropagation(); } }, true);
+	});
+})();
+</script>
+'''
 
 _DESKTOP_FIX_SCRIPT = r"""
 <script>
@@ -229,6 +300,6 @@ PAGE = _PAGE.replace(
 ).replace(
 	".searching{position:absolute;z-index:2;",
 	".searching{position:absolute;z-index:6;",
-).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + "</main>").replace('<span class="clock" id="clock"></span>', _SETTINGS_TASKBAR + '<span class="clock" id="clock"></span>').replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + _TOUCH_GAMES_SCRIPT + "</body>")
+).replace("</style>", APPS_CSS.replace(".file-list,", "") + _DESKTOP_FIX_CSS + "</style>").replace("</main>", _DESKTOP_FIX_HTML + APPS_HTML + _DESKTOP_MENU_HTML + "</main>").replace('<span class="clock" id="clock"></span>', _SETTINGS_TASKBAR + '<span class="clock" id="clock"></span>').replace("</body>", _DESKTOP_FIX_SCRIPT + _GAME_SCRIPT + APPS_JS + _TOUCH_GAMES_SCRIPT + _DESKTOP_MENU_SCRIPT + "</body>")
 
 __all__ = ["PAGE"]
