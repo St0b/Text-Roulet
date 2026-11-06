@@ -1,0 +1,67 @@
+const {chromium,launchOptions,baseURL}=require('./browser_test_support.cjs');
+const assert=require('node:assert/strict');
+const path=require('node:path');
+const fs=require('node:fs');
+(async()=>{
+  const browser=await chromium.launch(launchOptions());
+  const context=await browser.newContext({viewport:{width:1440,height:960},acceptDownloads:true});
+  const page=await context.newPage();const errors=[];
+  page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE ERROR:',e.message);});
+  fs.mkdirSync('test-results',{recursive:true});
+  try{
+    await page.goto(baseURL);
+    await page.getByRole('heading',{name:'Ваш рабочий стол. Теперь с Linux.'}).waitFor();
+    await page.screenshot({path:'test-results/desktop.png'});
+    console.log('PASS: desktop and welcome mounted');
+    await page.locator('.start-linux').click();
+    await page.waitForFunction(()=>document.querySelector('.vm-status')?.textContent==='Linux работает · /mnt — общие файлы',null,{timeout:60000});
+    console.log('PASS: real Linux booted in browser');
+    await page.evaluate(async()=>{
+      const {linux}=await import('/assets/linux.js');window.guestOutput='';linux.vm.add_listener('serial0-output-byte',b=>window.guestOutput+=String.fromCharCode(b));linux.vm.serial0_send('uname -s\necho BROWSER_LINUX_OK\n');
+    });
+    await page.waitForFunction(()=>/\r?\nBROWSER_LINUX_OK\r?\n/.test(window.guestOutput));
+    assert.match(await page.evaluate(()=>window.guestOutput),/\r?\nLinux\r?\n/);
+    await page.screenshot({path:'test-results/linux.png'});
+    console.log('PASS: actual Linux shell commands');
+    await page.evaluate(async()=>{
+      const {fs}=await import('/assets/storage.js');const {sendToLinux}=await import('/assets/linux.js');const n=await fs.write('shared','browser-test.txt',new TextEncoder().encode('HOST_TO_GUEST_OK'));await sendToLinux(n);
+      const {linux}=await import('/assets/linux.js');linux.vm.serial0_send("cat /mnt/browser-test.txt; echo\nprintf 'GUEST_TO_HOST_OK' > /mnt/response.txt\necho TRANSFER_DONE\n");
+    });
+    await page.waitForFunction(()=>/\r?\nTRANSFER_DONE\r?\n/.test(window.guestOutput));
+    assert.match(await page.evaluate(()=>window.guestOutput),/\r?\nHOST_TO_GUEST_OK/);
+    await page.evaluate(async()=>{const {receiveFromLinux}=await import('/assets/linux.js');await receiveFromLinux('/mnt/response.txt');});
+    assert.equal(await page.evaluate(async()=>{const {fs}=await import('/assets/storage.js');return new TextDecoder().decode(fs.list('shared').find(n=>n.name==='response.txt').data);}), 'GUEST_TO_HOST_OK');
+    console.log('PASS: browser ↔ Linux file transfer');
+    await page.locator('.vm-save').click();
+    await page.waitForFunction(()=>document.querySelector('.vm-save-time').textContent.startsWith('Снимок:'),null,{timeout:30000});
+    await page.locator('.vm-restore').click();await page.locator('#system-dialog button[value="ok"]').click();
+    await page.waitForFunction(()=>document.querySelector('.vm-status').textContent==='Снимок восстановлен',null,{timeout:30000});
+    await page.evaluate(async()=>{const {linux}=await import('/assets/linux.js');linux.vm.serial0_send('\ncat /mnt/response.txt; echo\n');window.restoreOutput='';linux.vm.add_listener('serial0-output-byte',b=>window.restoreOutput+=String.fromCharCode(b));});
+    await page.waitForFunction(()=>window.restoreOutput.includes('GUEST_TO_HOST_OK'));
+    console.log('PASS: IndexedDB VM checkpoint save + restore retains guest files');
+    await page.getByRole('button',{name:'Меню приложений',exact:true}).click();
+    await page.locator('#app-search').fill('файлы');await page.locator('.launcher-app').click();
+    await page.locator('.os-window[data-app="files"] .file-grid').waitFor();
+    await page.locator('.os-window[data-app="files"] [data-folder="shared"]').click();
+    await page.getByRole('button',{name:'response.txt',exact:true}).dblclick();
+    const editor=page.locator('.os-window[data-app="editor"]');
+    await editor.locator('.editor-area').fill('Persistent editor content');await editor.locator('.save-document').click();
+    assert.equal(await page.evaluate(async()=>{const {fs}=await import('/assets/storage.js');return new TextDecoder().decode(fs.list('shared').find(n=>n.name==='response.txt').data);}), 'Persistent editor content');
+    console.log('PASS: file manager → editor → persistent file');
+    await page.screenshot({path:'test-results/apps.png'});
+    await page.locator('.workspace-switch button').nth(1).click();assert.equal(await page.locator('.os-window:visible').count(),0);
+    await page.locator('.workspace-switch button').nth(0).click();assert.ok(await page.locator('.os-window:visible').count()>=3);
+    console.log('PASS: workspace switching');
+    await page.evaluate(async()=>{const {wm}=await import('/assets/windows.js');await wm.open('settings');});
+    await page.locator('.theme-choice').selectOption('light');assert.equal(await page.locator('body').getAttribute('data-theme'),'light');
+    await page.locator('.wallpaper-choice[data-wallpaper="midnight"]').click();
+    assert.equal(await page.locator('#desktop').getAttribute('data-wallpaper'),'midnight');
+    await page.screenshot({path:'test-results/light-theme.png'});
+    await page.evaluate(async()=>{const {settings}=await import('/assets/core.js');settings.set({theme:'dark',wallpaper:'hills'});const {wm}=await import('/assets/windows.js');for(const w of [...wm.windows])await wm.close(w,true);await wm.open('welcome');});
+    await page.setViewportSize({width:390,height:844});await page.waitForTimeout(300);await page.screenshot({path:'test-results/mobile.png'});
+    assert.ok(await page.locator('.welcome-main').evaluate(n=>n.getBoundingClientRect().right<=innerWidth));
+    console.log('PASS: theme settings and mobile layout');
+    await page.waitForTimeout(1000);
+    assert.deepEqual(errors,[]);console.log('PASS: no browser JavaScript errors');
+  }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

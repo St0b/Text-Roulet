@@ -1,3 +1,7 @@
 __pycache__/
 .env
 .vercel/
+.venv/
+tools/reference/
+tools/qa-runtime/
+test-results/

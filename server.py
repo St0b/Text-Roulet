@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from matchmaking import Matchmaking
 from page import PAGE
+from frontend.desktop import STATIC
 from supabase_matchmaking import SupabaseMatchmaking
 
 
@@ -28,6 +30,20 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/assets/"):
+            target = (STATIC / unquote(parsed.path.removeprefix("/assets/"))).resolve()
+            if not target.is_relative_to(STATIC) or not target.is_file():
+                self.send_error(404)
+                return
+            body = target.read_bytes()
+            self.send_response(200)
+            content_type = {".wasm": "application/wasm", ".js": "text/javascript", ".json": "application/json"}.get(target.suffix)
+            self.send_header("Content-Type", content_type or mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if parsed.path == "/":
             body = PAGE.encode("utf-8")
             self.send_response(200)

@@ -3,10 +3,21 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "excludeFiles": [".venv/**", "tools/**", "tests/**", "test-results/**"]
+      }
+    },
+    {
+      "src": "frontend/static/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
+    {
+      "src": "/assets/(.*)",
+      "dest": "/frontend/static/$1"
+    },
     {
       "src": "/(.*)",
       "dest": "api/index.py"

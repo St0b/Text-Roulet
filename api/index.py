@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from matchmaking import Matchmaking  # noqa: E402
 from page import PAGE  # noqa: E402
+from frontend.desktop import STATIC  # noqa: E402
 from supabase_matchmaking import SupabaseMatchmaking  # noqa: E402
 
 
@@ -23,6 +24,11 @@ matchmaking = SupabaseMatchmaking.create() or Matchmaking()
 @app.get("/")
 def home() -> Response:
     return Response(PAGE, mimetype="text/html")
+
+
+@app.get("/assets/<path:filename>")
+def assets(filename: str) -> Response:
+    return send_from_directory(STATIC, filename, conditional=True)
 
 
 @app.post("/api/join")
