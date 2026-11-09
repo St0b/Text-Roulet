@@ -6,6 +6,7 @@ GreenOS includes the following upstream software and images without claiming aut
 | --- | --- | --- |
 | v86 JavaScript and WebAssembly | https://github.com/copy/v86 | BSD-2-Clause, included in `frontend/static/vendor/v86/LICENSE` |
 | xterm.js 5.5.0 and FitAddon 0.10.0 | https://github.com/xtermjs/xterm.js | MIT, included in `frontend/static/vendor/xterm/LICENSE` |
+| HLS.js 1.7.4 | https://github.com/video-dev/hls.js | Apache-2.0, see `frontend/static/vendor/hls/LICENSE` |
 | SeaBIOS / VGA BIOS | https://github.com/coreboot/seabios | Upstream BIOS binaries distributed with v86; consult upstream `COPYING`, `COPYING.LESSER` and per-file notices |
 | Buildroot Linux 6.8 image | https://github.com/copy/v86/tree/master/tools/docker | Upstream v86 Linux image, Linux kernel GPL-2.0 and individual included package licenses; v86 image build tools and [image source information](https://github.com/copy/images) |
 | Tiny Core Linux 11.0 image | http://www.tinycorelinux.net/11.x/x86/ | Official Tiny Core image mirrored by v86; Linux kernel GPL-2.0 and individual included package licenses; source releases at http://www.tinycorelinux.net/11.x/x86/release/src/ |

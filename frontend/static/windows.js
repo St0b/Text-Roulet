@@ -1,4 +1,23 @@
-import {$, $$, el, icon, settings, emit, ask} from './core.js';
+import {$, $$, el, icon, settings, emit, on} from './core.js';
+
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const motionEnabled = () => settings.get('animations') && !reducedMotion.matches;
+
+function currentFrame(win) {
+  if (!win.motion && !win.element.classList.contains('opening')) return null;
+  const {transform, opacity} = getComputedStyle(win.element);
+  return {transform, opacity};
+}
+
+function taskFrame(win) {
+  const bounds = win.element.getBoundingClientRect();
+  const panel = $('.panel').getBoundingClientRect();
+  const task = $(`#tasks [data-window-id="${win.id}"]`)?.getBoundingClientRect() ?? panel;
+  const x = Math.max(panel.left + 16, Math.min(panel.right - 16, task.left + task.width / 2));
+  const dx = x - (bounds.left + bounds.width / 2);
+  const dy = task.top + task.height / 2 - (bounds.top + bounds.height / 2);
+  return {transform: `translate(${dx}px, ${dy}px) scale(.12)`, opacity: 0};
+}
 
 export class WindowManager {
   apps = new Map(); windows = []; active = null; sequence = 0; z = 20;
@@ -6,7 +25,7 @@ export class WindowManager {
   register(app) {this.apps.set(app.id, app);}
   async open(appId, options = {}) {
     const app=this.apps.get(appId); if(!app)return;
-    if(app.singleton) {const existing=this.windows.find(w=>w.app.id===appId);if(existing){this.switchWorkspace(existing.workspace);this.restore(existing);await existing.activate?.(options);return existing;}}
+    if(app.singleton) {const existing=this.windows.find(w=>w.app.id===appId);if(existing){this.restore(existing);await existing.activate?.(options);return existing;}}
     const bounds=$('#workarea').getBoundingClientRect(), offset=(this.windows.length%5)*24;
     const width=Math.min(app.width||800,bounds.width-24),height=Math.min(app.height||540,bounds.height-24);
     const abort=new AbortController();
@@ -18,6 +37,16 @@ export class WindowManager {
     win.setTitle=title=>{$('.window-name',win.element).textContent=title;win.title=title;this.renderTasks();};
     win.setTitle(app.name);
     win.on=(type,cb)=>win.element.addEventListener(type,cb,{signal:abort.signal});
+    if (motionEnabled()) {
+      win.element.classList.add('opening');
+      const finishOpening = event => {
+        if (event.target === win.element && event.animationName === 'window-in') {
+          win.element.classList.remove('opening');
+        }
+      };
+      win.on('animationend', finishOpening);
+      win.on('animationcancel', finishOpening);
+    }
     this.windows.push(win);$('#windows').append(win.element);this.applyGeometry(win);this.focus(win);
     win.on('pointerdown',()=>this.focus(win));
     for(const b of $$('.titlebar-actions button',win.element))b.onclick=()=>({close:()=>this.close(win),minimize:()=>this.minimize(win),maximize:()=>this.maximize(win),move:()=>{win.workspace=(win.workspace+1)%3;this.switchWorkspace(win.workspace);this.focus(win);}}[b.dataset.action]());
@@ -28,37 +57,162 @@ export class WindowManager {
     this.renderTasks();this.changed();return win;
   }
   applyGeometry(win) {const g=win.geometry;Object.assign(win.element.style,{left:`${g.x}px`,top:`${g.y}px`,width:`${g.width}px`,height:`${g.height}px`});}
+  cancelMotion(win) {
+    const motion = win.motion;
+    win.motion = null;
+    motion?.cancel();
+  }
+  settleMotions() {
+    for (const win of this.windows) {
+      if (!win.motion) continue;
+      this.cancelMotion(win);
+      win.element.hidden = win.minimized || win.workspace !== this.workspace;
+    }
+  }
+  animateWindow(win, frames, duration, finish) {
+    const motion = win.element.animate(frames, {duration, easing: 'cubic-bezier(.24,.76,.28,1)', fill: 'both'});
+    win.motion = motion;
+    motion.onfinish = () => {
+      if (win.motion !== motion) return;
+      finish?.();
+      this.cancelMotion(win);
+    };
+  }
+  setMaximized(win, maximized) {
+    win.maximized = maximized;
+    win.element.classList.toggle('maximized', maximized);
+    const button = $('[data-action="maximize"]', win.element);
+    button.title = maximized ? 'Вернуть размер окна' : 'Развернуть';
+    button.setAttribute('aria-label', button.title);
+  }
+  tilePair(left, right) {
+    const area = $('#workarea');
+    const gap = 10;
+    const width = Math.floor((area.clientWidth - gap * 3) / 2);
+    const height = area.clientHeight - gap * 2;
+    if (width < 360 || height < 220 || left.workspace !== this.workspace || right.workspace !== this.workspace) return;
+    for (const [win, x] of [[left, gap], [right, width + gap * 2]]) {
+      this.cancelMotion(win);
+      this.setMaximized(win, false);
+      win.minimized = false;
+      win.element.hidden = false;
+      win.element.inert = false;
+      win.element.classList.remove('opening');
+      win.geometry = {x, y: gap, width, height};
+      this.applyGeometry(win);
+      win.element.dispatchEvent(new Event('resize'));
+    }
+    this.focus(left);
+    this.changed();
+  }
   focus(win) {if(!this.windows.includes(win))return;this.active=win;win.element.style.zIndex=++this.z;for(const w of this.windows)w.element.classList.toggle('focused',w===win);this.renderTasks();emit('focus',win);}
-  minimize(win) {win.minimized=true;win.element.hidden=true;if(this.active===win)this.focusNext(win);this.renderTasks();this.changed();}
-  restore(win) {if(win.workspace!==this.workspace)this.switchWorkspace(win.workspace);win.minimized=false;win.element.hidden=false;this.focus(win);win.element.dispatchEvent(new Event('resize'));this.changed();}
-  maximize(win) {win.maximized=!win.maximized;win.element.classList.toggle('maximized',win.maximized);this.focus(win);win.element.dispatchEvent(new Event('resize'));this.changed();}
-  async close(win, force=false) {if(!force&&win.beforeClose&&!await win.beforeClose())return;win.abort.abort();await win.cleanup();win.element.remove();this.windows=this.windows.filter(w=>w!==win);if(this.active===win)this.focusNext(win);this.renderTasks();this.changed();}
+  minimize(win, animate = true) {
+    if (win.minimized) return;
+    const shouldAnimate = animate && motionEnabled() && !win.element.hidden;
+    const from = shouldAnimate ? currentFrame(win) : null;
+    this.cancelMotion(win);
+    win.element.classList.remove('opening');
+    win.minimized = true;
+    win.element.inert = true;
+    const wasActive = this.active === win;
+    if (wasActive) this.focusNext(win);
+    this.renderTasks();
+    if (shouldAnimate) {
+      if (wasActive) win.element.style.zIndex = ++this.z;
+      this.animateWindow(win, [from ?? {transform: 'none', opacity: 1}, taskFrame(win)], 190, () => {
+        win.element.hidden = true;
+      });
+    } else {
+      win.element.hidden = true;
+    }
+    this.changed();
+  }
+  restore(win) {
+    if (win.workspace !== this.workspace) this.switchWorkspace(win.workspace);
+    const reveal = win.minimized;
+    const from = reveal ? currentFrame(win) : null;
+    if (reveal) this.cancelMotion(win);
+    win.minimized = false;
+    win.element.hidden = false;
+    win.element.inert = false;
+    this.focus(win);
+    if (reveal && motionEnabled()) {
+      this.animateWindow(win, [from ?? taskFrame(win), {transform: 'none', opacity: 1}], 220);
+    }
+    win.element.dispatchEvent(new Event('resize'));
+    this.changed();
+  }
+  maximize(win, animate = true) {
+    const before = animate && motionEnabled() && !win.element.hidden ? win.element.getBoundingClientRect() : null;
+    this.cancelMotion(win);
+    win.element.classList.remove('opening');
+    this.setMaximized(win, !win.maximized);
+    this.focus(win);
+    if (before) {
+      const after = win.element.getBoundingClientRect();
+      const dx = before.left + before.width / 2 - (after.left + after.width / 2);
+      const dy = before.top + before.height / 2 - (after.top + after.height / 2);
+      const transform = `translate(${dx}px, ${dy}px) scale(${before.width / after.width}, ${before.height / after.height})`;
+      this.animateWindow(win, [{transform}, {transform: 'none'}], 200);
+    }
+    win.element.dispatchEvent(new Event('resize'));
+    this.changed();
+  }
+  async close(win, force=false) {if(!force&&win.beforeClose&&!await win.beforeClose())return;this.cancelMotion(win);win.abort.abort();await win.cleanup();win.element.remove();this.windows=this.windows.filter(w=>w!==win);if(this.active===win)this.focusNext(win);this.renderTasks();this.changed();}
   focusNext(except) {const next=this.windows.filter(w=>w!==except&&!w.minimized&&w.workspace===this.workspace).sort((a,b)=>Number(b.element.style.zIndex)-Number(a.element.style.zIndex))[0];this.active=null;if(next)this.focus(next);else emit('focus',null);}
-  switchWorkspace(index) {this.workspace=index;settings.set({workspace:index});for(const w of this.windows)w.element.hidden=w.minimized||w.workspace!==index;this.focusNext(null);this.renderTasks();this.changed();}
+  switchWorkspace(index) {this.settleMotions();this.workspace=index;settings.set({workspace:index});for(const w of this.windows)w.element.hidden=w.minimized||w.workspace!==index;this.focusNext(null);this.renderTasks();this.changed();}
   cycle() {const visible=this.windows.filter(w=>w.workspace===this.workspace);if(!visible.length)return;const index=visible.indexOf(this.active);this.restore(visible[(index+1)%visible.length]);}
   bindDrag(win,handle,resize) {
     handle.addEventListener('pointerdown',event=>{
-      if(event.button!==0||event.target.closest('button')||win.maximized||innerWidth<640)return;
-      event.preventDefault();this.focus(win);const initial={...win.geometry},x=event.clientX,y=event.clientY;
-      handle.setPointerCapture(event.pointerId);win.element.classList.add('moving');
-      const move=e=>{const area=$('#workarea');const dx=e.clientX-x,dy=e.clientY-y;
-        if(resize){win.geometry.width=Math.min(area.clientWidth-win.geometry.x,Math.max(360,initial.width+dx));win.geometry.height=Math.min(area.clientHeight-win.geometry.y,Math.max(260,initial.height+dy));}
-        else{win.geometry.x=Math.min(area.clientWidth-80,Math.max(0,initial.x+dx));win.geometry.y=Math.min(area.clientHeight-45,Math.max(0,initial.y+dy));}
-        this.applyGeometry(win);win.element.dispatchEvent(new Event('resize'));};
-      const stop=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);win.element.classList.remove('moving');this.changed();};
-      handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',stop,{once:true});handle.addEventListener('pointercancel',stop,{once:true});
+      if (event.button !== 0 || event.target.closest('button') || win.maximized || innerWidth < 640 || win.element.classList.contains('moving')) return;
+      event.preventDefault();
+      this.cancelMotion(win);
+      this.focus(win);
+      const initial = {...win.geometry};
+      const {pointerId, clientX, clientY} = event;
+      handle.setPointerCapture(pointerId);
+      win.element.classList.remove('opening');
+      win.element.classList.add('moving');
+
+      const move = event => {
+        if (event.pointerId !== pointerId) return;
+        const area = $('#workarea');
+        const dx = event.clientX - clientX;
+        const dy = event.clientY - clientY;
+        if (resize) {
+          win.geometry.width = Math.min(area.clientWidth - win.geometry.x, Math.max(360, initial.width + dx));
+          win.geometry.height = Math.min(area.clientHeight - win.geometry.y, Math.max(260, initial.height + dy));
+        } else {
+          win.geometry.x = Math.min(area.clientWidth - 80, Math.max(0, initial.x + dx));
+          win.geometry.y = Math.min(area.clientHeight - 45, Math.max(0, initial.y + dy));
+        }
+        this.applyGeometry(win);
+        win.element.dispatchEvent(new Event('resize'));
+      };
+      const endEvents = ['pointerup', 'pointercancel', 'lostpointercapture'];
+      const stop = event => {
+        if (event.pointerId !== pointerId) return;
+        handle.removeEventListener('pointermove', move);
+        for (const type of endEvents) handle.removeEventListener(type, stop);
+        win.element.classList.remove('moving');
+        this.changed();
+      };
+      handle.addEventListener('pointermove', move);
+      for (const type of endEvents) handle.addEventListener(type, stop);
     });
   }
   renderTasks() {
     const target=$('#tasks');target.replaceChildren();
     for(const w of this.windows.filter(w=>w.workspace===this.workspace)){
-      const b=el('button',{class:`task ${!w.minimized&&this.active===w?'active':''}`,title:w.title||w.app.name});
+      const b=el('button',{class:`task ${!w.minimized&&this.active===w?'active':''}`,title:w.title||w.app.name,'data-window-id':w.id});
       b.innerHTML=`${icon(w.app.icon)}<span></span>`;$('span',b).textContent=w.title||w.app.name;
       b.onclick=()=>!w.minimized&&this.active===w?this.minimize(w):this.restore(w);target.append(b);
     }
     $$('.workspace-switch button').forEach((b,i)=>{b.classList.toggle('active',i===this.workspace);b.classList.toggle('occupied',this.windows.some(w=>w.workspace===i));});
   }
   changed() {emit('windows',this.windows);}
-  clamp() {const a=$('#workarea');for(const w of this.windows){w.geometry.width=Math.min(w.geometry.width,a.clientWidth-12);w.geometry.height=Math.min(w.geometry.height,a.clientHeight-12);w.geometry.x=Math.max(0,Math.min(w.geometry.x,a.clientWidth-w.geometry.width));w.geometry.y=Math.max(0,Math.min(w.geometry.y,a.clientHeight-w.geometry.height));this.applyGeometry(w);}}
+  clamp() {this.settleMotions();const a=$('#workarea');for(const w of this.windows){w.geometry.width=Math.min(w.geometry.width,a.clientWidth-12);w.geometry.height=Math.min(w.geometry.height,a.clientHeight-12);w.geometry.x=Math.max(0,Math.min(w.geometry.x,a.clientWidth-w.geometry.width));w.geometry.y=Math.max(0,Math.min(w.geometry.y,a.clientHeight-w.geometry.height));this.applyGeometry(w);}}
 }
 export const wm=new WindowManager();
+on('settings', () => { if (!motionEnabled()) wm.settleMotions(); });
+reducedMotion.addEventListener('change', () => { if (reducedMotion.matches) wm.settleMotions(); });

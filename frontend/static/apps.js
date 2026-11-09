@@ -2,15 +2,26 @@ import {$, $$, el, icon, settings, on, emit, ask, pickFile, download, bytes, esc
 import {fs, state, transaction} from './storage.js';
 import {wm} from './windows.js';
 import {linux, sendToLinux, receiveFromLinux} from './linux.js';
+import {hasAvatar, removeAvatar, renderAvatar, updateAvatar} from './profile.js';
+import {documentFormat} from './documents.js';
 
 export const guard = callback => async(...args)=>{try{return await callback(...args);}catch(e){console.error(e);emit('toast',{message:e.message||'Операция не выполнена',error:true});}};
 const notify=message=>emit('toast',{message});
 export function openFile(node) {
   if(!node){notify('Файл не найден.');return;}
   if(node.type==='dir')return wm.open('files',{folder:node.id});
+  if(documentFormat(node))return wm.open('office',{id:node.id});
   if(/^(image|audio|video)\//.test(node.mime))return wm.open('viewer',{id:node.id});
-  if(node.data.byteLength>2*1024*1024){download(node.name,node.data,node.mime);return;}
+  if(node.data.byteLength>2*1024*1024||!isTextFile(node)){download(node.name,node.data,node.mime);return;}
   return wm.open('editor',{id:node.id});
+}
+
+function isTextFile(node) {
+  if (/\.(doc|ppt|xls|rtf|odt|ods|odp|zip|gz|wasm|exe|bin|iso)$/i.test(node.name)) return false;
+  try {
+    const decoded = new TextDecoder('utf-8',{fatal:true}).decode(node.data);
+    return !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(decoded);
+  } catch { return false; }
 }
 export const welcomeApp={id:'welcome',name:'Добро пожаловать',subtitle:'Знакомство с GreenOS',icon:'leaf',singleton:true,width:840,height:555,
   mount(win){
@@ -22,62 +33,308 @@ export const welcomeApp={id:'welcome',name:'Добро пожаловать',sub
   }
 };
 
-export const filesApp={id:'files',name:'Файлы',subtitle:'Папки и обмен с Linux',icon:'files',width:855,height:555,
-  mount(win,options={}){
-    let folder=options.folder||'home',selected=null,history=[],filter='';
-    win.body.innerHTML=`<div class="toolbar"><button class="go-back icon-button" title="Назад" aria-label="Назад">${icon('back')}</button><button class="go-up icon-button" title="На уровень выше" aria-label="На уровень выше">${icon('up')}</button><div class="file-address"></div><input class="file-search" type="search" placeholder="Поиск…" aria-label="Поиск файлов"></div><div class="app-layout"><aside class="sidebar"><div class="sidebar-label">МЕСТА</div>${[['home','home','Домашняя папка'],['desktop','desktop','Рабочий стол'],['documents','editor','Документы'],['downloads','download','Загрузки'],['pictures','image','Изображения'],['shared','linux','Обмен с Linux'],['trash','trash','Корзина']].map(([id,i,t])=>`<button data-folder="${id}" title="${t}">${icon(i)}<span>${t}</span></button>`).join('')}</aside><main class="app-main" style="display:flex;flex-direction:column"><div class="file-operations"><button class="new-folder">${icon('plus')}Папка</button><button class="new-file">${icon('editor')}Файл</button><button class="import-files">${icon('upload')}Загрузить</button><button class="linux-pull">${icon('download')}Из Linux</button><button class="selected-action" disabled>Действия ⋯</button></div><div class="file-grid" tabindex="0" aria-label="Содержимое папки"></div></main></div><div class="statusbar"><span class="file-count"></span><span class="spacer"></span><span class="file-storage">IndexedDB · локальные файлы</span></div>`;
-    const q=s=>$(s,win.body),grid=q('.file-grid');
-    const enter=id=>{if(id!==folder)history.push(folder);folder=id;selected=null;filter='';q('.file-search').value='';render();};
-    function actions(node){return folder==='trash'?[
-      {label:'Восстановить',action:guard(()=>fs.restore(node.id))},
-      {label:'Удалить навсегда',danger:true,action:guard(async()=>{if(await ask('Удалить навсегда?',{message:node.name,confirm:true,ok:'Удалить'}))await fs.remove(node.id);})},
-    ]:[
-      {label:'Открыть',action:()=>openFile(node)},
-      ...(node.type==='file'?[{label:'Скачать',action:()=>download(node.name,node.data,node.mime)},{label:'Отправить в Linux /mnt',action:guard(()=>sendToLinux(node))}]:[]),
-      {label:'Переименовать',action:guard(async()=>{const name=await ask('Переименовать',{value:node.name});if(name)await fs.rename(node.id,name);})},
-      {label:'В корзину',danger:true,action:guard(()=>fs.trash(node.id))},
-    ];}
-    function context(event,node){event.preventDefault();selected=node.id;render();emit('context',{x:event.clientX,y:event.clientY,items:actions(node)});}
-    function render(){
-      if(folder!=='trash'&&(!fs.get(folder)||fs.isTrashed(fs.get(folder))))folder='home';
-      win.setTitle(`${folder==='trash'?'Корзина':fs.get(folder).name} — Файлы`);
-      q('.file-address').replaceChildren();
-      for(const node of folder==='trash'?[{id:'trash',name:'Корзина'}]:fs.path(folder)){
-        const button=el('button',{},node.id==='home'?'Домашняя':node.name);button.onclick=()=>enter(node.id);q('.file-address').append(button,el('span',{class:'muted'},'›'));
-      }
-      $$('[data-folder]',win.body).forEach(b=>b.classList.toggle('active',b.dataset.folder===folder));
-      q('.go-back').disabled=!history.length;q('.go-up').disabled=folder==='home'||folder==='trash';
-      const list=fs.list(folder,folder==='trash').filter(n=>n.name.toLowerCase().includes(filter));grid.replaceChildren();
-      for(const node of list){
-        const b=el('button',{class:`file-card ${node.type} ${selected===node.id?'selected':''}`,draggable:folder!=='trash','aria-label':node.name});
-        b.innerHTML=icon(node.type==='dir'?'files':node.mime?.startsWith('image/')?'image':'editor');b.append(el('strong',{},node.name),el('small',{},node.type==='dir'?'Папка':bytes(node.data.byteLength)));
-        b.onclick=()=>{selected=node.id;render();};b.ondblclick=()=>folder==='trash'?null:openFile(node);b.oncontextmenu=e=>context(e,node);
-        b.ondragstart=e=>{e.dataTransfer.setData('application/x-greenos-file',node.id);e.dataTransfer.effectAllowed='move';};
-        if(node.type==='dir'){
-          b.ondragover=e=>{e.preventDefault();e.stopPropagation();};
-          b.ondrop=guard(async e=>{e.preventDefault();e.stopPropagation();const id=e.dataTransfer.getData('application/x-greenos-file');if(id)await fs.move(id,node.id);else for(const file of e.dataTransfer.files)await fs.import(file,node.id);});
-        }
-        grid.append(b);
-      }
-      if(!list.length)grid.append(el('div',{class:'empty',style:'grid-column:1/-1'},el('h3',{},filter?'Ничего не найдено':folder==='trash'?'Корзина пуста':'Папка пуста'),el('p',{},folder==='shared'?'Загрузите файл или заберите его из Linux /mnt.':'Создавайте файлы или перетащите их сюда.')));
-      q('.file-count').textContent=`Объектов: ${list.length}${selected&&fs.get(selected)?` · ${fs.get(selected).name}`:''}`;
-      q('.selected-action').disabled=!selected||!fs.get(selected);
-      for(const selector of ['.new-folder','.new-file','.import-files'])q(selector).disabled=folder==='trash';
-      win.options={folder};
+const fileDragType = 'application/x-greenos-file';
+let fileToMove = null;
+const fileDate = new Intl.DateTimeFormat('ru-RU', {day: 'numeric', month: 'short', year: 'numeric'});
+const filePlaces = [
+  ['home', 'home', 'Домашняя папка'], ['desktop', 'desktop', 'Рабочий стол'],
+  ['documents', 'editor', 'Документы'], ['downloads', 'download', 'Загрузки'],
+  ['pictures', 'image', 'Изображения'], ['shared', 'linux', 'Обмен с Linux'], ['trash', 'trash', 'Корзина'],
+];
+
+function setFileToMove(id) {
+  fileToMove = id;
+  emit('file-clipboard');
+}
+
+export const filesApp = {
+  id: 'files', name: 'Файлы', subtitle: 'Папки и обмен с Linux', icon: 'files', width: 855, height: 555,
+
+  mount(win, options = {}) {
+    let folder = options.folder || 'home';
+    let view = options.view === 'list' ? 'list' : 'grid';
+    let selected = null;
+    let filter = '';
+    let dropTarget = null;
+    const history = [];
+    win.body.classList.add('files-window');
+    win.body.innerHTML = `
+      <div class="toolbar file-navigation">
+        <button class="go-back icon-button" title="Назад" aria-label="Назад">${icon('back')}</button>
+        <button class="go-up icon-button" title="На уровень выше" aria-label="На уровень выше">${icon('up')}</button>
+        <div class="file-address" aria-label="Путь к папке"></div>
+        <input class="file-search" type="search" placeholder="Поиск…" aria-label="Поиск файлов">
+      </div>
+      <div class="app-layout">
+        <aside class="sidebar file-sidebar"><div class="sidebar-label">МЕСТА</div>
+          ${filePlaces.map(([id, glyph, title]) => `<button data-folder="${id}" title="${title}" aria-label="${title}">${icon(glyph)}<span>${title}</span></button>`).join('')}
+        </aside>
+        <main class="app-main file-main">
+          <header class="file-location">
+            <span class="file-location-icon"></span>
+            <div class="grow"><small>ХРАНИЛИЩЕ GREENOS</small><h2 class="file-location-name"></h2></div>
+            <div class="file-window-tools">
+              <button class="new-file-window icon-button" aria-label="Новое окно" title="Новое окно">${icon('plus')}</button>
+              <button class="tile-file-windows" title="Поставить два окна рядом" aria-label="Поставить два окна рядом">${icon('split')}<span>Рядом</span></button>
+            </div>
+          </header>
+          <div class="file-operations">
+            <button class="new-folder" aria-label="Новая папка" title="Новая папка">${icon('plus')}<span>Папка</span></button>
+            <button class="new-file" aria-label="Новый файл" title="Новый файл">${icon('editor')}<span>Файл</span></button>
+            <button class="import-files" aria-label="Загрузить файлы" title="Загрузить файлы">${icon('upload')}<span>Загрузить</span></button>
+            <button class="linux-pull" aria-label="Забрать файл из Linux" title="Забрать файл из Linux">${icon('download')}<span>Из Linux</span></button>
+            <button class="paste-file" aria-label="Вставить" title="Вставить" disabled>${icon('clipboard')}<span>Вставить</span></button>
+            <button class="selected-action" aria-label="Действия с объектом" title="Действия с объектом" disabled>⋯</button>
+            <div class="file-view-switch" role="group" aria-label="Вид папки">
+              <button data-view="grid" title="Плитки" aria-label="Плитки">${icon('grid')}</button>
+              <button data-view="list" title="Список" aria-label="Список">${icon('list')}</button>
+            </div>
+          </div>
+          <div class="file-list-head" aria-hidden="true" hidden><span>Имя</span><span>Размер</span><span>Изменён</span></div>
+          <div class="file-grid" tabindex="0" aria-label="Содержимое папки"></div>
+        </main>
+      </div>
+      <div class="statusbar"><span class="file-count"></span><span class="spacer"></span><span class="file-hint"></span></div>`;
+
+    const q = selector => $(selector, win.body);
+    const grid = q('.file-grid');
+
+    function enter(id, recordHistory = true) {
+      if (recordHistory && id === folder) return;
+      if (recordHistory) history.push(folder);
+      folder = id;
+      selected = null;
+      filter = '';
+      q('.file-search').value = '';
+      render();
+      wm.changed();
     }
-    q('.go-back').onclick=()=>{folder=history.pop()||'home';selected=null;render();};q('.go-up').onclick=()=>enter(fs.get(folder)?.parent||'home');
-    $$('[data-folder]',win.body).forEach(b=>b.onclick=()=>enter(b.dataset.folder));
-    q('.file-search').oninput=e=>{filter=e.target.value.toLowerCase();render();};
-    q('.new-folder').onclick=guard(async()=>{const name=await ask('Новая папка',{value:'Новая папка',ok:'Создать'});if(name)await fs.mkdir(folder,name);});
-    q('.new-file').onclick=guard(async()=>{const name=await ask('Новый файл',{value:'Новый документ.txt',ok:'Создать'});if(name)openFile(await fs.write(folder,name,new Uint8Array()));});
-    q('.import-files').onclick=guard(async()=>{for(const file of await pickFile('',true))await fs.import(file,folder);notify('Файлы загружены.');});
-    q('.linux-pull').onclick=guard(async()=>{const name=await ask('Забрать файл из Linux',{message:'Путь в общей файловой системе 9p (Buildroot: /mnt).',value:'/mnt/hello.txt',ok:'Забрать'});if(name)await receiveFromLinux(name);});
-    q('.selected-action').onclick=e=>{const r=e.currentTarget.getBoundingClientRect();emit('context',{x:r.left,y:r.bottom+4,items:actions(fs.get(selected))});};
-    grid.ondragover=e=>{if(folder==='trash')return;e.preventDefault();grid.classList.add('file-drop');};grid.ondragleave=()=>grid.classList.remove('file-drop');
-    grid.ondrop=guard(async e=>{e.preventDefault();grid.classList.remove('file-drop');if(folder==='trash')return;const id=e.dataTransfer.getData('application/x-greenos-file');if(id)await fs.move(id,folder);else for(const file of e.dataTransfer.files)await fs.import(file,folder);});
-    grid.onkeydown=guard(async e=>{if(!selected)return;if(e.key==='Enter'){e.preventDefault();openFile(fs.get(selected));}if(e.key==='Delete'&&folder!=='trash'){e.preventDefault();await fs.trash(selected);selected=null;}});
-    on('files',render,win.abort.signal);render();win.serialize=()=>({folder});
-  }
+
+    function openEntry(node) {
+      if (node?.type === 'dir') enter(node.id);
+      else return openFile(node);
+    }
+
+    function openNewWindow(directory = folder) {
+      return wm.open('files', {folder: directory, view});
+    }
+
+    function updateClipboard() {
+      const node = fs.canMove(fileToMove) ? fs.get(fileToMove) : null;
+      q('.paste-file').disabled = !node || folder === 'trash' || node.parent === folder;
+      q('.file-hint').textContent = node ? `Вырезан «${node.name}»` : 'Локальное хранилище';
+      for (const card of $$('.file-card', grid)) {
+        card.classList.toggle('cut', card.dataset.fileId === node?.id);
+      }
+    }
+
+    function selectCard(id) {
+      selected = id;
+      const cards = $$('.file-card', grid);
+      for (const card of cards) {
+        const active = card.dataset.fileId === selected;
+        card.classList.toggle('selected', active);
+        card.setAttribute('aria-pressed', String(active));
+      }
+      const node = fs.get(selected);
+      q('.file-count').textContent = `Объектов: ${cards.length}${node ? ` · ${node.name}` : ''}`;
+      q('.selected-action').disabled = !node;
+    }
+
+    async function moveEntry(id, destination) {
+      if (fs.get(id)?.parent === destination) return;
+      const node = await fs.move(id, destination);
+      if (fileToMove === id) setFileToMove(null);
+      notify(`«${node.name}» перемещён в папку «${fs.get(destination).name}».`);
+    }
+
+    function actions(node) {
+      if (folder === 'trash') return [
+        {label: 'Восстановить', action: guard(() => fs.restore(node.id))},
+        {label: 'Удалить навсегда', danger: true, action: guard(async () => {
+          if (await ask('Удалить навсегда?', {message: node.name, confirm: true, ok: 'Удалить'})) await fs.remove(node.id);
+        })},
+      ];
+      const items = [{label: 'Открыть', action: () => openEntry(node)},
+        {label: 'Создать ярлык на рабочем столе', action: () => emit('shortcut:add', {kind: 'file', id: node.id})}];
+      if (node.type === 'dir') {
+        items.push({label: 'Открыть в новом окне', action: () => openNewWindow(node.id)});
+      } else {
+        items.push({label: 'Скачать', action: () => download(node.name, node.data, node.mime)},
+          {label: 'Отправить в Linux /mnt', action: guard(() => sendToLinux(node))});
+      }
+      if (fs.canMove(node.id)) items.push({label: 'Вырезать', action: () => setFileToMove(node.id)});
+      items.push({label: 'Переименовать', action: guard(async () => {
+        const name = await ask('Переименовать', {value: node.name});
+        if (name) await fs.rename(node.id, name);
+      })}, {label: 'В корзину', danger: true, action: guard(() => fs.trash(node.id))});
+      return items;
+    }
+
+    function makeCard(node) {
+      const directory = node.type === 'dir';
+      const card = el('button', {class: `file-card ${node.type}`, draggable: String(folder !== 'trash' && fs.canMove(node.id)),
+        title: node.name, 'aria-label': node.name, 'data-file-id': node.id});
+      const fileIcon = directory ? 'files' : node.mime?.startsWith('image/') ? 'image' : 'editor';
+      card.innerHTML = `<span class="file-type-icon">${icon(fileIcon)}</span>`;
+      card.append(el('strong', {}, node.name), el('small', {class: 'file-size'}, directory ? 'Папка' : bytes(node.data.byteLength)),
+        el('small', {class: 'file-modified'}, Number.isFinite(node.modified) ? fileDate.format(node.modified) : '—'));
+      card.onclick = () => selectCard(node.id);
+      card.ondblclick = () => { if (folder !== 'trash') openEntry(node); };
+      card.oncontextmenu = event => {
+        event.preventDefault();
+        selectCard(node.id);
+        emit('context', {x: event.clientX, y: event.clientY, items: actions(node)});
+      };
+      card.ondragstart = event => {
+        if (folder === 'trash' || !fs.canMove(node.id)) return;
+        selectCard(node.id);
+        event.dataTransfer.setData(fileDragType, node.id);
+        event.dataTransfer.effectAllowed = 'move';
+      };
+      return card;
+    }
+
+    function render() {
+      const current = fs.get(folder);
+      if (folder !== 'trash' && (current?.type !== 'dir' || fs.isTrashed(current))) folder = 'home';
+      const name = folder === 'trash' ? 'Корзина' : fs.get(folder).name;
+      win.setTitle(`${name} — Файлы`);
+      q('.file-location-name').textContent = name;
+      q('.file-location-icon').innerHTML = icon(folder === 'trash' ? 'trash' : 'files');
+      const breadcrumb = q('.file-address');
+      breadcrumb.replaceChildren();
+      const path = folder === 'trash' ? [{id: 'trash', name}] : fs.path(folder);
+      for (const node of path) {
+        if (breadcrumb.childElementCount) breadcrumb.append(el('span', {class: 'muted', 'aria-hidden': 'true'}, '›'));
+        breadcrumb.append(el('button', {onclick: () => enter(node.id)}, node.id === 'home' ? 'Домашняя' : node.name));
+      }
+      $$('[data-folder]', win.body).forEach(button => button.classList.toggle('active', button.dataset.folder === folder));
+      q('.go-back').disabled = !history.length;
+      q('.go-up').disabled = folder === 'home' || folder === 'trash';
+      for (const selector of ['.new-folder', '.new-file', '.import-files']) q(selector).disabled = folder === 'trash';
+      grid.dataset.view = view;
+      q('.file-list-head').hidden = view !== 'list';
+      for (const button of $$('[data-view]', win.body)) button.setAttribute('aria-pressed', String(button.dataset.view === view));
+      const entries = fs.list(folder, folder === 'trash').filter(node => node.name.toLowerCase().includes(filter));
+      grid.replaceChildren(...entries.map(makeCard));
+      if (!entries.length) {
+        const title = filter ? 'Ничего не найдено' : folder === 'trash' ? 'Корзина пуста' : 'Папка пуста';
+        const hint = filter ? 'Попробуйте другое имя.' : folder === 'trash' ? 'Удалённые файлы появятся здесь.'
+          : folder === 'shared' ? 'Загрузите файл или заберите его из Linux /mnt.' : 'Перетащите сюда файлы или создайте новый.';
+        const empty = el('div', {class: 'file-empty empty'}, el('h3', {}, title), el('p', {}, hint));
+        empty.insertAdjacentHTML('afterbegin', icon(folder === 'trash' ? 'trash' : 'files'));
+        grid.append(empty);
+      }
+      selectCard(entries.some(node => node.id === selected) ? selected : null);
+      updateClipboard();
+    }
+
+    q('.go-back').onclick = () => enter(history.pop() || 'home', false);
+    q('.go-up').onclick = () => enter(fs.get(folder)?.parent || 'home');
+    $$('[data-folder]', win.body).forEach(button => button.onclick = () => enter(button.dataset.folder));
+    $$('[data-view]', win.body).forEach(button => button.onclick = () => {
+      view = button.dataset.view;
+      render();
+      wm.changed();
+    });
+    q('.file-search').oninput = event => { filter = event.target.value.toLowerCase(); render(); };
+    q('.new-file-window').onclick = () => openNewWindow();
+    q('.tile-file-windows').onclick = async () => {
+      const peer = wm.windows.findLast(other => other !== win && other.app.id === 'files' && other.workspace === win.workspace)
+        || await openNewWindow();
+      wm.tilePair(win, peer);
+    };
+    q('.new-folder').onclick = guard(async () => {
+      const name = await ask('Новая папка', {value: 'Новая папка', ok: 'Создать'});
+      if (name) await fs.mkdir(folder, name);
+    });
+    q('.new-file').onclick = guard(async () => {
+      const name = await ask('Новый файл', {value: 'Новый документ.txt', ok: 'Создать'});
+      if (name) openFile(await fs.write(folder, name, new Uint8Array()));
+    });
+    q('.import-files').onclick = guard(async () => {
+      const destination = folder;
+      const files = await pickFile('', true);
+      for (const file of files) await fs.import(file, destination);
+      if (files.length) notify('Файлы загружены.');
+    });
+    q('.linux-pull').onclick = guard(async () => {
+      const name = await ask('Забрать файл из Linux', {message: 'Путь в общей файловой системе 9p (Buildroot: /mnt).', value: '/mnt/hello.txt', ok: 'Забрать'});
+      if (name) await receiveFromLinux(name);
+    });
+    const paste = guard(async () => {
+      if (!fileToMove || q('.paste-file').disabled) return;
+      const id = fileToMove;
+      setFileToMove(null);
+      try {
+        await moveEntry(id, folder);
+      } catch (error) {
+        if (!fileToMove && fs.canMove(id)) setFileToMove(id);
+        throw error;
+      }
+    });
+    q('.paste-file').onclick = paste;
+    q('.selected-action').onclick = event => {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const node = fs.get(selected);
+      if (node) emit('context', {x: bounds.left, y: bounds.bottom + 4, items: actions(node)});
+    };
+
+    function clearDropPreview() {
+      dropTarget?.classList.remove('drop-target');
+      dropTarget = null;
+      grid.classList.remove('file-drop');
+    }
+
+    grid.ondragover = event => {
+      const types = event.dataTransfer.types;
+      if (folder === 'trash' || !(types.includes(fileDragType) || types.includes('Files'))) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = types.includes(fileDragType) ? 'move' : 'copy';
+      const target = event.target.closest('.file-card.dir');
+      if (target !== dropTarget) {
+        dropTarget?.classList.remove('drop-target');
+        dropTarget = target;
+        dropTarget?.classList.add('drop-target');
+      }
+      grid.classList.toggle('file-drop', !target);
+    };
+    grid.ondragleave = event => { if (!grid.contains(event.relatedTarget)) clearDropPreview(); };
+    grid.ondrop = guard(async event => {
+      event.preventDefault();
+      clearDropPreview();
+      if (folder === 'trash') return;
+      const destination = event.target.closest('.file-card.dir')?.dataset.fileId ?? folder;
+      const id = event.dataTransfer.getData(fileDragType);
+      if (id) await moveEntry(id, destination);
+      else for (const file of event.dataTransfer.files) await fs.import(file, destination);
+    });
+    grid.onkeydown = guard(async event => {
+      if (folder === 'trash') return;
+      const id = event.target.closest('.file-card')?.dataset.fileId ?? selected;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        await paste();
+      } else if (id && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'x' && fs.canMove(id)) {
+        event.preventDefault();
+        setFileToMove(id);
+      } else if (id && event.key === 'Enter') {
+        event.preventDefault();
+        await openEntry(fs.get(id));
+      } else if (id && event.key === 'Delete') {
+        event.preventDefault();
+        await fs.trash(id);
+      }
+    });
+    on('files', () => {
+      if (fileToMove && !fs.canMove(fileToMove)) setFileToMove(null);
+      render();
+    }, win.abort.signal);
+    on('file-clipboard', updateClipboard, win.abort.signal);
+    win.serialize = () => ({folder, view});
+    render();
+  },
 };
 
 export const editorApp={id:'editor',name:'Текстовый редактор',subtitle:'Тексты и код',icon:'editor',width:760,height:555,
@@ -143,9 +400,18 @@ async function importFiles(file){
   await transaction('files','readwrite',s=>{s.clear();for(const n of nodes)s.put(n);});fs.nodes=nodes;emit('files');notify('Архив файлов восстановлен.');
 }
 export const settingsApp={id:'settings',name:'Настройки',subtitle:'Оформление и система',icon:'settings',singleton:true,width:820,height:570,
-  mount(win){
+  mount(win,options){
     win.body.innerHTML=`<div class="app-layout"><aside class="sidebar"><div class="sidebar-label">GREENOS</div>${[['appearance','image','Оформление'],['user','home','Пользователь'],['data','files','Данные'],['about','info','О системе']].map(([id,i,t])=>`<button data-tab="${id}">${icon(i)}<span>${t}</span></button>`).join('')}</aside><main class="app-main settings-main"></main></div>`;
-    const root=$('.settings-main',win.body);let tab='appearance';
+    const root=$('.settings-main',win.body);
+    const tabs=['appearance','user','data','about'];
+    let tab=tabs.includes(options.tab)?options.tab:'appearance';
+    win.activate=({tab: next})=>{if(tabs.includes(next)){tab=next;render();}};
+    function refreshProfileAvatar(){
+      renderAvatar($('.profile-avatar',root));
+      const button=$('.avatar-remove',root);
+      if(button)button.hidden=!hasAvatar();
+    }
+    on('avatar',refreshProfileAvatar,win.abort.signal);
     function render(){
       $$('[data-tab]',win.body).forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
       if(tab==='appearance'){
@@ -154,8 +420,13 @@ export const settingsApp={id:'settings',name:'Настройки',subtitle:'Оф
         $('.theme-choice',root).value=settings.get('theme');$('.theme-choice',root).onchange=e=>settings.set({theme:e.target.value});
         $$('[data-color]',root).forEach(b=>b.onclick=()=>{settings.set({accent:b.dataset.color});render();});$('.animations-choice',root).onchange=e=>settings.set({animations:e.target.checked});
       }else if(tab==='user'){
-        root.innerHTML=`<h2>Ваше пространство</h2><p style="font-size:12px">Имя локального профиля рабочего стола. Учётная запись Linux управляется внутри гостевой системы.</p><form class="user-form"><label class="setting-line"><div><strong>Имя пользователя</strong><small>Отображается в меню GreenOS</small></div><input class="user-name" type="text" maxlength="40" required aria-label="Имя пользователя"></label><button class="primary" style="margin-top:20px">Сохранить</button></form><div class="separator"></div><p style="font-size:11px">Экран блокировки скрывает рабочий стол. Парольную защиту и пользователей Linux настраивайте в самой виртуальной машине.</p>`;
-        $('.user-name',root).value=settings.get('name');$('.user-form',root).onsubmit=e=>{e.preventDefault();settings.set({name:$('.user-name',root).value.trim()||'green'});notify('Имя сохранено.');};
+        root.innerHTML=`<h2>Профиль GreenOS</h2><p>Аватар и имя показываются в локальной оболочке GreenOS.</p><div class="profile-card"><div class="avatar profile-avatar" aria-hidden="true"></div><div class="grow"><strong>Аватар</strong><small>PNG, JPEG или WebP · до 10 МБ</small><div class="profile-actions"><button type="button" class="avatar-pick">Выбрать изображение</button><button type="button" class="avatar-remove">Удалить аватар</button></div></div></div><form class="user-form"><label class="setting-line"><div><strong>Имя пользователя</strong><small>Отображается в меню GreenOS</small></div><input class="user-name" type="text" maxlength="40" required aria-label="Имя пользователя"></label><button class="primary" style="margin-top:20px">Сохранить</button></form>`;
+        const choose=$('.avatar-pick',root), remove=$('.avatar-remove',root);
+        function changeAvatar(action){return guard(async()=>{choose.disabled=remove.disabled=true;try{await action();}finally{choose.disabled=remove.disabled=false;}});}
+        choose.onclick=changeAvatar(async()=>{const [file]=await pickFile('image/png,image/jpeg,image/webp');if(file)await updateAvatar(file);});
+        remove.onclick=changeAvatar(removeAvatar);
+        refreshProfileAvatar();
+        $('.user-name',root).value=settings.get('name');$('.user-form',root).onsubmit=e=>{e.preventDefault();settings.set({name:$('.user-name',root).value.trim()||'green'});refreshProfileAvatar();notify('Имя сохранено.');};
       }else if(tab==='data'){
         root.innerHTML=`<h2>Данные под контролем</h2><p style="font-size:12px">Файлы и снимки хранятся в этом браузере, на этом адресе сайта. Очистка данных сайта удаляет их.</p><div class="setting-line"><div><strong>Резервная копия файлов</strong><small>Все папки и документы рабочего стола</small></div><button class="backup">${icon('download')}Экспорт</button></div><div class="setting-line"><div><strong>Восстановить файлы</strong><small>Из архива greenos-files.json</small></div><button class="restore">${icon('upload')}Импорт</button></div><div class="setting-line"><div><strong>Снимок виртуальной машины</strong><small>Сохраняет память Linux и состояние устройств</small></div><button class="open-linux">Открыть Linux</button></div><div class="setting-line"><div><strong>Защита от очистки хранилища</strong><small class="persistent-label">Браузер может запросить разрешение</small></div><button class="persist">Запросить</button></div><p style="margin-top:20px;font-size:11px">Архив файлов и снимок Linux сохраняются отдельно. Для полной резервной копии экспортируйте оба.</p>`;
         $('.backup',root).onclick=guard(exportFiles);$('.restore',root).onclick=guard(async()=>{const [f]=await pickFile('.json');if(f)await importFiles(f);});$('.open-linux',root).onclick=()=>wm.open('linux');$('.persist',root).onclick=guard(async()=>{const granted=await navigator.storage.persist?.();$('.persistent-label',root).textContent=granted?'Постоянное хранилище разрешено':'Браузер не предоставил постоянное хранилище.';});
@@ -165,9 +436,4 @@ export const settingsApp={id:'settings',name:'Настройки',subtitle:'Оф
     }
     $$('[data-tab]',win.body).forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();});render();
   }
-};
-
-export const browserApp={id:'browser',name:'Интернет',subtitle:'Адреса и закладки',icon:'globe',width:810,height:560,
-  mount(win){win.body.innerHTML=`<form class="toolbar address-form"><span>${icon('globe')}</span><input class="grow web-address" type="text" placeholder="Адрес сайта или поисковый запрос" aria-label="Адрес сайта"><button class="primary">Открыть ↗</button></form><div class="browser-page"><span class="badge green">GREENOS / WEB</span><h1 style="margin-top:22px">Окно в открытый мир.</h1><p>Найдите ответ, откройте документацию или исследуйте Linux.</p><div class="bookmark-grid">${[['Linux Kernel','kernel.org','https://kernel.org/'],['Tiny Core','tinycorelinux.net','https://www.tinycorelinux.net/'],['Buildroot','buildroot.org','https://buildroot.org/'],['v86','github.com/copy/v86','https://github.com/copy/v86']].map(([name,domain,url])=>`<a class="bookmark" href="${url}" target="_blank" rel="noreferrer"><strong>${name} ↗</strong><small>${domain}</small></a>`).join('')}</div><div class="browser-note">Сайты открываются в новой вкладке браузера: большинство сайтов запрещают встраивание в чужие окна. В графическом Linux браузер работает внутри виртуальной машины и использует её сетевое подключение.</div></div>`;
-    $('.address-form',win.body).onsubmit=e=>{e.preventDefault();const value=$('.web-address',win.body).value.trim();if(!value)return;let url;if(/^https?:\/\//i.test(value))url=value;else if(/^[\w.-]+\.[a-z]{2,}([/:]|$)/i.test(value))url='https://'+value;else url='https://www.google.com/search?q='+encodeURIComponent(value);window.open(url,'_blank','noopener,noreferrer');};}
 };

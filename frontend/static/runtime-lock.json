@@ -53,5 +53,15 @@
     "url": "https://i.copy.sh/TinyCore-11.0.iso",
     "bytes": 19922944,
     "sha256": "778fc3788d9df3de72970827968b2b195aca827401db6f6f9cbdb737d4300bda"
+  },
+  "vendor/hls/hls.min.mjs": {
+    "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.mjs",
+    "bytes": 597142,
+    "sha256": "5501f1d9091b6f749e0ef61aff4b9ea3ba13fd5fa5e2aefb6fc0ff871847a531"
+  },
+  "vendor/hls/LICENSE": {
+    "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/LICENSE",
+    "bytes": 1338,
+    "sha256": "ca8773cf798c7ed997d4dd7c8e23c348699f8d5b7462636694cc14de6cda12db"
   }
 }

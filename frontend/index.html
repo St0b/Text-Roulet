@@ -9,6 +9,8 @@
   <link rel="icon" href="/assets/leaf.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/vendor/xterm/xterm.css">
   <link rel="stylesheet" href="/assets/desktop.css">
+  <link rel="stylesheet" href="/assets/arcade-galaxy.css">
+  <link rel="stylesheet" href="/assets/office-data-editor.css">
   <script defer src="/assets/vendor/xterm/xterm.js"></script>
   <script defer src="/assets/vendor/xterm/addon-fit.js"></script>
   <script type="module" src="/assets/main.js"></script>
@@ -17,8 +19,9 @@
   <div id="desktop" class="desktop" data-wallpaper="hills">
     <div class="landscape" aria-hidden="true"></div>
     <header class="topbar">
-      <button id="brand" class="brand" title="О GreenOS"><img src="/assets/leaf.svg" alt=""><strong>Green<span>OS</span></strong><span class="edition">LINUX EDITION</span></button>
+      <button id="brand" class="brand" title="О GreenOS"><span class="shell-logo" aria-hidden="true"></span><strong>Green<span>OS</span></strong><span class="edition">LINUX EDITION</span></button>
       <div class="workspace-switch" aria-label="Рабочие пространства"></div>
+      <button id="window-overview-toggle" class="window-overview-toggle" title="Обзор окон" aria-label="Обзор окон" aria-controls="window-overview" aria-expanded="false"></button>
       <button id="top-clock" class="top-clock" title="Календарь"></button>
       <div class="system-tray"><span id="network" title="Состояние сети"></span><button id="fullscreen" class="icon-button" title="Полный экран" aria-label="Полный экран"></button><button id="notification-toggle" class="icon-button" title="Уведомления" aria-label="Уведомления"></button><button id="lock" class="icon-button" title="Заблокировать экран" aria-label="Заблокировать экран"></button></div>
     </header>
@@ -29,22 +32,26 @@
       <div id="empty-workspace" class="empty-workspace" hidden>Рабочее пространство <span>2</span></div>
     </main>
     <footer class="panel">
-      <button id="start-button" class="start-button" aria-label="Меню приложений"><img src="/assets/leaf.svg" alt=""><span>Меню</span></button>
+      <button id="start-button" class="start-button" aria-label="Меню приложений" aria-controls="launcher" aria-expanded="false"><span class="shell-logo" aria-hidden="true"></span><span class="start-label">Меню</span></button>
       <div class="panel-divider"></div><div id="pinned-apps" class="pinned-apps"></div>
       <div class="panel-divider"></div><div id="tasks" class="tasks"></div>
       <button id="show-desktop" class="icon-button" title="Показать рабочий стол" aria-label="Показать рабочий стол"></button>
     </footer>
     <aside id="launcher" class="launcher popover" hidden>
-      <div class="launcher-user"><div class="avatar">g</div><div><strong id="user-label">green</strong><small>Локальный рабочий стол</small></div><button id="launcher-settings" class="icon-button" title="Настройки" aria-label="Настройки"></button></div>
+      <div class="launcher-user"><button id="launcher-avatar" type="button" class="avatar" title="Профиль" aria-label="Настройки профиля">G</button><div><strong id="user-label">green</strong><small>Локальный рабочий стол</small></div><button id="launcher-settings" class="icon-button" title="Настройки" aria-label="Настройки"></button></div>
       <div class="launcher-search"><span>⌕</span><input id="app-search" type="search" placeholder="Поиск приложений…" autocomplete="off" aria-label="Поиск приложений"></div>
       <div class="launcher-caption">ПРИЛОЖЕНИЯ <span id="app-count"></span></div><div id="app-list" class="app-list"></div>
       <div class="launcher-footer"><span>GreenOS 2.0</span><button id="launcher-lock">Заблокировать</button></div>
     </aside>
     <aside id="notifications" class="notifications popover" hidden><div class="popover-head"><strong>Уведомления</strong><button id="clear-notifications" class="text-button">Очистить</button></div><div id="notification-list"></div></aside>
+    <aside id="window-overview" class="window-overview popover" aria-labelledby="window-overview-title" hidden>
+      <div class="popover-head"><strong id="window-overview-title">Открытые окна</strong><small id="window-overview-count"></small></div>
+      <div id="window-overview-groups" class="window-overview-groups"></div>
+    </aside>
     <aside id="calendar" class="calendar popover" hidden></aside>
     <div id="context-menu" class="context-menu popover" role="menu" hidden></div>
     <div id="toast-area" class="toast-area" aria-live="polite"></div>
-    <div id="lock-screen" class="lock-screen" hidden><img src="/assets/leaf.svg" alt=""><div id="lock-time"></div><p id="lock-date"></p><button class="primary" id="unlock">Вернуться в GreenOS</button><small>Экран заблокирован. Это не парольная защита.</small></div>
+    <div id="lock-screen" class="lock-screen" hidden><div class="avatar lock-avatar" aria-hidden="true">G</div><div id="lock-time"></div><p id="lock-date"></p><button class="primary" id="unlock">Вернуться в GreenOS</button><small>Экран заблокирован. Это не парольная защита.</small></div>
   </div>
   <dialog id="system-dialog"><form method="dialog"><div id="dialog-content"></div><div class="dialog-actions"><button value="cancel">Отмена</button><button value="ok" class="primary">Продолжить</button></div></form></dialog>
   <noscript>Для запуска Linux и рабочего стола GreenOS включите JavaScript.</noscript>

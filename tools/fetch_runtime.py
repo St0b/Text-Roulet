@@ -19,6 +19,8 @@ SOURCES = {
     "vendor/xterm/xterm.css": "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css",
     "vendor/xterm/addon-fit.js": "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js",
     "vendor/xterm/LICENSE": "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/LICENSE",
+    "vendor/hls/hls.min.mjs": "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.mjs",
+    "vendor/hls/LICENSE": "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/LICENSE",
     "images/buildroot-linux.bin": "https://i.copy.sh/buildroot-bzimage68.bin",
     "images/tinycore.iso": "https://i.copy.sh/TinyCore-11.0.iso",
 }

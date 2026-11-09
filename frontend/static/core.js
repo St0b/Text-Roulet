@@ -42,6 +42,11 @@ const paths = {
   save:'M4 3h14l3 3v15H3V3h1Zm3 0v7h10V3M7 21v-7h10v7',
   info:'M12 11v6m0-10v1m9 4a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   image:'M3 3h18v18H3zM3 17l5-6 4 4 3-3 6 6M15 7h1',
+  music:'M9 18V5l12-2v13M9 18a3 2 0 1 1-6 0 3 2 0 1 1 6 0Zm12-2a3 2 0 1 1-6 0 3 2 0 1 1 6 0ZM9 9l12-2',
+  split:'M3 5h18v14H3zM12 5v14',
+  grid:'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  list:'M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1',
+  clipboard:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 12h8m-8 4h5',
 };
 export function icon(name, className = '') {
   return `<svg class="icon ${className}" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.editor}"/></svg>`;

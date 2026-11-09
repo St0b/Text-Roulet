@@ -1,0 +1,41 @@
+.office-data-editor { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.office-data-navigation, .office-data-entry, .office-data-jump {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 8px 12px;
+}
+.office-data-navigation {
+  flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.office-data-navigation select { max-width: min(100%, 250px); }
+.office-data-navigation span, .office-data-note { color: var(--muted); font-size: 11px; }
+.office-data-navigation button { padding: 5px; }
+.office-data-navigation button .icon { width: 18px; height: 18px; }
+.office-data-view { flex: 1; min-height: 0; overflow: auto; }
+.office-data-note { margin: 5px 12px 10px; }
+.office-data-entry, .office-data-jump { padding-bottom: 2px; }
+.office-data-entry textarea, .office-slide-text textarea {
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+  color: var(--text); background: var(--bg); resize: vertical;
+  font: inherit; min-height: 31px; width: 100%;
+}
+.office-data-entry textarea { flex: 1 1 160px; max-height: 100px; min-width: 100px; }
+.office-data-entry textarea[aria-invalid="true"] { border-color: #c64c61; }
+.office-data-address { min-width: 42px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.office-data-jump input { width: 108px; text-transform: uppercase; }
+.office-data-jump button, .office-data-entry button { font-size: 11px; }
+.office-data-grid { overflow: auto; margin: 0 12px 12px; border: 1px solid var(--border); border-radius: 7px; }
+.office-data-grid table { min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.office-data-grid :is(th,td) { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+.office-data-grid th { min-width: 44px; padding: 5px; background: var(--surface); color: var(--muted); }
+.office-data-grid tbody th { position: sticky; left: 0; z-index: 1; }
+.office-data-grid td { padding: 0; background: var(--bg); }
+.office-data-grid td button {
+  display: block; width: 100%; min-width: 90px; max-width: 165px; min-height: 28px; padding: 3px 6px;
+  border: 0; border-radius: 0; background: transparent; text-align: start; white-space: nowrap;
+  text-overflow: ellipsis; overflow: hidden;
+}
+.office-data-grid td button[aria-pressed="true"] {
+  color: var(--text); background: var(--tint); box-shadow: inset 0 0 0 2px var(--accent);
+}
+.office-slide-editor { display: grid; gap: 9px; padding: 12px; }
+.office-slide-text { min-width: 0; border: 1px solid var(--border); border-radius: 7px; display: grid; gap: 6px; }
+.office-slide-text legend { padding: 0 5px; font-size: 12px; color: var(--accent); overflow-wrap: anywhere; }

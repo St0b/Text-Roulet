@@ -66,10 +66,16 @@ export class FileSystem {
     return this.commit({id:id||uid(),parent,name,type:'file',mime,data,modified:Date.now()});
   }
   async rename(id,name) {this.validateName(name);const n=this.get(id);if(protectedIds.has(id))throw new Error('Системную папку нельзя переименовать.');this.unique(n.parent,name,id);return this.commit({...n,name,modified:Date.now()});}
+  canMove(id) {
+    const node = this.get(id);
+    return !!node && !protectedIds.has(id) && !this.isTrashed(node);
+  }
   async move(id,parent) {
-    const n=this.get(id);if(!n||protectedIds.has(id))throw new Error('Системную папку нельзя переместить.');
+    if (!this.canMove(id)) throw new Error('Этот объект нельзя переместить.');
+    const n=this.get(id);
     const target=this.get(parent);if(!target||target.type!=='dir'||this.isTrashed(target))throw new Error('Папка назначения не найдена.');
     if(this.path(parent).some(p=>p.id===id))throw new Error('Нельзя переместить папку внутрь себя.');
+    if (n.parent === parent) return n;
     this.unique(parent,n.name,id);return this.commit({...n,parent,modified:Date.now()});
   }
   async trash(id) {if(protectedIds.has(id))throw new Error('Системную папку нельзя удалить.');return this.commit({...this.get(id),trashRoot:true,modified:Date.now()});}
