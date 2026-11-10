@@ -1,3 +1,4 @@
+export const GREENOS_VERSION = '2.5';
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -82,7 +83,7 @@ export const emit = (type, detail) => events.dispatchEvent(new CustomEvent(type,
 export const on = (type, callback, signal) => events.addEventListener(type, e => callback(e.detail), {signal});
 
 export const settings = (() => {
-  const defaults = {name:'green', theme:'dark', wallpaper:'hills', accent:'#a5d890', animations:true, workspace:0, ram:128, profile:'buildroot', welcome:true};
+  const defaults = {name:'green', theme:'dark', wallpaper:'hills', accent:'#a5d890', animations:true, startupSound:true, workspace:0, ram:128, profile:'buildroot', welcome:true};
   let value = {...defaults};
   try { value = {...defaults, ...JSON.parse(localStorage.getItem('greenos-settings-v2') || '{}')}; } catch { /* damaged settings fall back to defaults */ }
   value.workspace = Math.max(0, Math.min(2, Number(value.workspace) || 0));

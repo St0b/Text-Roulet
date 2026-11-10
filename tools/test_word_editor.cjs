@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs');
+const {chromium, launchOptions, baseURL, unlockDesktop} = require('./browser_test_support.cjs');
 
 (async () => {
   const browser = await chromium.launch(launchOptions());
@@ -10,6 +10,7 @@ const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs')
     const errors = [];
     page.on('pageerror', error => { errors.push(error.message); console.error(error); });
     await page.goto(baseURL);
+    await unlockDesktop(page);
     await page.getByRole('heading',{name:'Ваш рабочий стол. Теперь с Linux.'}).waitFor({timeout:30000});
     await page.getByRole('button',{name:'Меню приложений',exact:true}).click();
     await page.locator('#app-search').fill('Документы');
@@ -61,12 +62,38 @@ const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs')
     await size.press('Enter');
     await app.getByRole('button',{name:'Полужирный',exact:true}).click();
     await app.getByRole('button',{name:'По центру',exact:true}).click();
+    await app.getByRole('combobox',{name:'Межстрочный интервал'}).selectOption('1.5');
     assert.ok(await paper.evaluate(root => [...root.querySelectorAll('span')].some(span =>
       span.style.fontSize === '22.5pt' && span.textContent === 'Размер текста')));
     await app.getByRole('button',{name:'Отменить',exact:true}).click();
     await app.getByRole('button',{name:'Повторить',exact:true}).click();
-    await atEnd();
+
+    const alignments = () => paper.evaluate(root => [...root.children].map(block => getComputedStyle(block).textAlign));
+    const original = await alignments();
+    assert.deepEqual(original,['center']);
+    await selectText('Размер текста');
+    await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('Enter');
+    assert.deepEqual(await alignments(),['left','center']);
+    await page.keyboard.press('Control+z');
+    await selectText('и остальной');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await alignments(),['center','left']);
+    await page.keyboard.press('Control+z');
+    await selectText('и остальной абзац');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Shift+Enter');
+    assert.deepEqual(await alignments(),original);
+    await page.keyboard.press('Control+z');
+    await selectText('и остальной абзац');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await alignments(),['center','left']);
+    await page.keyboard.press('Control+z');
+    assert.deepEqual(await alignments(),original);
+    await page.keyboard.press('Control+y');
+    assert.deepEqual(await alignments(),['center','left']);
     await page.keyboard.insertText('Первый пункт');
     await app.getByRole('button',{name:'Нумерованный список',exact:true}).click();
     await paper.locator('ol li').getByText('Первый пункт',{exact:true}).waitFor();
@@ -99,6 +126,20 @@ const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs')
     await page.keyboard.insertText('Стиль при вводе');
     assert.ok(await paper.evaluate(root => [...root.querySelectorAll('span')].some(span =>
       span.style.fontSize === '18pt' && span.style.fontWeight === 'bold' && span.textContent === 'Стиль при вводе')));
+    await atEnd();
+    await page.keyboard.press('Control+Enter');
+    await page.keyboard.insertText('Отдельная вторая страница');
+    await page.keyboard.press('Control+f');
+    await app.getByRole('searchbox',{name:'Что найти'}).fill('Отдельная');
+    await app.getByRole('textbox',{name:'На что заменить'}).fill('Заголовок');
+    await app.getByRole('button',{name:'Заменить все',exact:true}).click();
+    await app.getByText('Заменено: 1',{exact:true}).waitFor();
+    await app.getByRole('button',{name:'Закрыть поиск',exact:true}).click();
+    assert.match(await paper.textContent(),/Заголовок вторая страница/);
+    await app.getByText(/Страница [12] из 2/).waitFor();
+    assert.equal(await app.locator('.word-page-mat').count(),2);
+    await app.getByRole('combobox',{name:'Вид страниц'}).selectOption('spread');
+    await app.getByText('Страницы 1–2 из 2',{exact:true}).waitFor();
     fs.mkdirSync('test-results',{recursive:true});
     await app.screenshot({path:'test-results/greenos-word-editor.png',animations:'disabled'});
     await page.keyboard.press('Control+s');
@@ -118,17 +159,21 @@ const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs')
       return {id:node.id,text, halfPoints:attribute(child(props,'sz'),'val'), font:attribute(child(props,'rFonts'),'ascii'),
         bold:Boolean(child(props,'b')) && attribute(child(props,'b'),'val') !== '0',
         align:descendants(doc,'jc').map(jc => attribute(jc,'val')),
+        spacing:descendants(doc,'spacing').map(item => attribute(item,'line')),
         lists:descendants(doc,'numId').length, cells:descendants(doc,'tc').length,
-        images:descendants(doc,'drawing').length, packageType:(await zip.xml('[Content_Types].xml')).localName};
+        images:descendants(doc,'drawing').length, breaks:descendants(doc,'br').filter(br => attribute(br,'type') === 'page').length,
+        packageType:(await zip.xml('[Content_Types].xml')).localName};
     },name);
     const saved = await inspect('Проверка Word.docx');
     assert.equal(saved.halfPoints,'45');
     assert.equal(saved.font,'Georgia');
     assert.equal(saved.bold,true);
     assert.ok(saved.align.includes('center'));
+    assert.ok(saved.spacing.includes('360'));
     assert.equal(saved.lists,1);
     assert.equal(saved.cells,6);
     assert.equal(saved.images,1);
+    assert.equal(saved.breaks,1);
     assert.equal(saved.packageType,'Types');
     const downloading = page.waitForEvent('download');
     await app.getByRole('button',{name:'Скачать DOCX',exact:true}).click();
@@ -141,6 +186,7 @@ const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs')
     await app.locator('.office-word').getByText('Размер текста',{exact:true}).waitFor();
     assert.equal(await app.locator('.office-word').getByText('Размер текста',{exact:true}).evaluate(node => node.style.fontSize),'22.5pt');
     await app.locator('.office-word ol').getByText('Первый пункт',{exact:true}).waitFor();
+    await app.getByText(/Страница [12] из 2/).waitFor();
     await page.waitForFunction(() => document.querySelector('.office-word img')?.naturalWidth === 70);
     await app.getByRole('button',{name:'Редактировать копию',exact:true}).click();
     await atEnd();
@@ -153,7 +199,20 @@ const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs')
     const copy = await inspect('Проверка Word — копия.docx');
     assert.ok(copy.text.includes('Изменено'));
     assert.equal((await inspect('Проверка Word.docx')).text,saved.text);
+    await app.getByRole('button',{name:'Новый документ Word',exact:true}).click();
+    await paper.evaluate(root => {
+      const paragraphs = Array.from({length:85},(_,index) => {
+        const paragraph = document.createElement('p');
+        paragraph.textContent = `Абзац ${index + 1}. Автоматическая разбивка длинного текста на страницы.`;
+        return paragraph;
+      });
+      root.replaceChildren(...paragraphs);
+      root.dispatchEvent(new InputEvent('input',{inputType:'insertText',bubbles:true}));
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.word-page-mat').length > 2);
+    await app.getByRole('combobox',{name:'Вид страниц'}).selectOption('draft');
+    await app.locator('.word-page-status').getByText('Черновик',{exact:true}).waitFor();
     assert.deepEqual(errors,[]);
-    console.log('PASS: DOCX rich editing, exact point size, export, reopen, copy preservation and unsaved confirmation');
+    console.log('PASS: DOCX formatting, automatic and manual pages, export, reopen, copy preservation and unsaved confirmation');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

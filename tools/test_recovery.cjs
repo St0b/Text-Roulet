@@ -1,18 +1,18 @@
-const {chromium,launchOptions,baseURL}=require('./browser_test_support.cjs');
+const {chromium,launchOptions,baseURL,unlockDesktop}=require('./browser_test_support.cjs');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const fsNode=require('node:fs');
 (async()=>{
  const browser=await chromium.launch(launchOptions());const context=await browser.newContext({viewport:{width:1366,height:900},acceptDownloads:true});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try{
-  fsNode.mkdirSync('test-results',{recursive:true});await page.goto(baseURL);await page.locator('.welcome-main').waitFor();
+  fsNode.mkdirSync('test-results',{recursive:true});await page.goto(baseURL);await unlockDesktop(page);await page.locator('.welcome-main').waitFor();
   await page.evaluate(async()=>{
    const {fs}=await import('/assets/storage.js'),{wm}=await import('/assets/windows.js');
    const dir=await fs.mkdir('documents','Recovery folder');const file=await fs.write(dir.id,'original.txt',new TextEncoder().encode('PERSISTENT_CONTENT'));
    await fs.rename(file.id,'renamed.txt');await fs.move(file.id,'shared');await fs.trash(file.id);await fs.restore(file.id);
    await wm.open('editor',{name:'Draft.txt',draft:'UNSAVED_DRAFT_RECOVERY'});
   });
-  await page.waitForTimeout(800);await page.reload();await page.locator('.os-window[data-app="editor"] .editor-area').waitFor();
+  await page.waitForTimeout(800);await page.reload();await unlockDesktop(page);await page.locator('.os-window[data-app="editor"] .editor-area').waitFor();
   assert.equal(await page.locator('.editor-area').inputValue(),'UNSAVED_DRAFT_RECOVERY');
   assert.equal(await page.evaluate(async()=>{const {fs}=await import('/assets/storage.js');return new TextDecoder().decode(fs.list('shared').find(n=>n.name==='renamed.txt').data);}), 'PERSISTENT_CONTENT');
   console.log('PASS: folder operations, files and unsaved editor draft survive reload');
@@ -29,7 +29,7 @@ const fsNode=require('node:fs');
   await page.waitForFunction(()=>/\r?\nSNAPSHOT_READY\r?\n/.test(window.output));await page.locator('.vm-save').click();await page.waitForFunction(()=>document.querySelector('.vm-save-time').textContent.startsWith('Снимок:'),null,{timeout:30000});
   pending=page.waitForEvent('download');await page.locator('.vm-export').click();const exported=await pending;const snapshotPath=path.resolve('test-results/exported.gvm');await exported.saveAs(snapshotPath);
   await page.evaluate(async()=>{const {wm}=await import('/assets/windows.js');for(const w of [...wm.windows])if(w.app.id==='linux')await wm.close(w,true);});
-  await page.waitForTimeout(800);await page.reload();await page.locator('.editor-area').waitFor();
+  await page.waitForTimeout(800);await page.reload();await unlockDesktop(page);await page.locator('.editor-area').waitFor();
   await page.evaluate(async()=>{const {wm}=await import('/assets/windows.js');await wm.open('linux');});chooser=page.waitForEvent('filechooser');await page.locator('.vm-import').click();await(await chooser).setFiles(snapshotPath);
   await page.waitForFunction(()=>document.querySelector('.vm-status')?.textContent==='Снимок восстановлен',null,{timeout:30000});
   assert.equal(await page.evaluate(async()=>{const {linux}=await import('/assets/linux.js');return new TextDecoder().decode(await linux.vm.read_file('checkpoint.txt'));}), 'EXPORTED_VM_RECOVERY');

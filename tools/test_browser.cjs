@@ -1,4 +1,4 @@
-const {chromium,launchOptions,baseURL}=require('./browser_test_support.cjs');
+const {chromium,launchOptions,baseURL,unlockDesktop}=require('./browser_test_support.cjs');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const fs=require('node:fs');
@@ -10,6 +10,7 @@ const fs=require('node:fs');
   fs.mkdirSync('test-results',{recursive:true});
   try{
     await page.goto(baseURL);
+    await unlockDesktop(page);
     await page.getByRole('heading',{name:'Ваш рабочий стол. Теперь с Linux.'}).waitFor();
     await page.screenshot({path:'test-results/desktop.png'});
     console.log('PASS: desktop and welcome mounted');
@@ -54,7 +55,8 @@ const fs=require('node:fs');
     const targetWindow = fileWindows.nth(1);
     await page.locator('#pinned-apps').getByRole('button', {name:'Файлы', exact:true}).click();
     await targetWindow.locator('[data-folder="downloads"]').click();
-    await page.locator('#tasks button[title="Обмен с Linux — Файлы"]').click();
+    await page.locator('#tasks .task[data-app-id="files"]').click();
+    await page.locator('#task-group-menu [title="Обмен с Linux — Файлы"]').click();
     await sourceWindow.getByRole('button', {name:'Поставить два окна рядом'}).click();
     await sourceWindow.getByRole('button', {name:'response.txt', exact:true})
       .dragTo(targetWindow.locator('.file-grid'), {targetPosition:{x:170, y:190}});

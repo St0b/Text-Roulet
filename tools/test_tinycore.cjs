@@ -1,10 +1,10 @@
-const {chromium,launchOptions,baseURL}=require('./browser_test_support.cjs');
+const {chromium,launchOptions,baseURL,unlockDesktop}=require('./browser_test_support.cjs');
 const path=require('node:path');
 (async()=>{
  const browser=await chromium.launch(launchOptions());
  const page=await browser.newPage({viewport:{width:1440,height:960}});page.on('pageerror',e=>console.error('PAGE ERROR:',e));
  try{
-  await page.goto(baseURL);await page.locator('.start-tinycore').click();
+  await page.goto(baseURL);await unlockDesktop(page);await page.locator('.start-tinycore').click();
   for(let i=0;i<30;i++){
    await page.waitForTimeout(5000);
    const screen=await page.evaluate(async()=>{const {linux}=await import('/assets/linux.js');return {vm:!!linux.vm,running:linux.vm?.is_running(),text:linux.vm?.screen_adapter?.get_text_screen?.()?.join('\n'),canvas:document.querySelector('.vga-screen canvas')?.style.display,profile:linux.profile};});

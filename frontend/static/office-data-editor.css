@@ -1,5 +1,5 @@
 .office-data-editor { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
-.office-data-navigation, .office-data-entry, .office-data-jump {
+.office-data-navigation, .office-data-entry, .office-data-jump, .office-data-font {
   display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 8px 12px;
 }
 .office-data-navigation {
@@ -10,8 +10,17 @@
 .office-data-navigation button { padding: 5px; }
 .office-data-navigation button .icon { width: 18px; height: 18px; }
 .office-data-view { flex: 1; min-height: 0; overflow: auto; }
+.office-sheet-editor { display: flex; min-height: 100%; height: 100%; flex-direction: column; }
 .office-data-note { margin: 5px 12px 10px; }
-.office-data-entry, .office-data-jump { padding-bottom: 2px; }
+.office-data-entry, .office-data-tools, .office-data-note, .office-data-page-nav { flex-shrink: 0; }
+.office-data-entry { padding-bottom: 2px; }
+.office-data-tools { display: flex; align-items: center; flex-wrap: wrap; }
+.office-data-font, .office-data-jump { padding-bottom: 3px; }
+.office-data-font label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }
+.office-data-font select { max-width: min(32vw, 140px); }
+.office-data-font input { width: 69px; }
+.office-data-font button { font-weight: bold; }
+.office-data-font button[aria-pressed="true"] { border-color: var(--accent); background: var(--tint); color: var(--accent); }
 .office-data-entry textarea, .office-slide-text textarea {
   border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
   color: var(--text); background: var(--bg); resize: vertical;
@@ -19,13 +28,23 @@
 }
 .office-data-entry textarea { flex: 1 1 160px; max-height: 100px; min-width: 100px; }
 .office-data-entry textarea[aria-invalid="true"] { border-color: #c64c61; }
+.office-data-entry textarea[readonly] { color: var(--muted); }
 .office-data-address { min-width: 42px; color: var(--accent); font-variant-numeric: tabular-nums; }
 .office-data-jump input { width: 108px; text-transform: uppercase; }
 .office-data-jump button, .office-data-entry button { font-size: 11px; }
-.office-data-grid { overflow: auto; margin: 0 12px 12px; border: 1px solid var(--border); border-radius: 7px; }
+.office-data-page-nav { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 12px 8px; }
+.office-data-page-nav div { display: flex; align-items: center; gap: 6px; }
+.office-data-page-nav span { min-width: 110px; text-align: center; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.office-data-page-nav button { padding: 3px 8px; }
+.office-data-grid { flex: 1 0 135px; overflow: auto; margin: 0 12px 12px; border: 1px solid var(--border); border-radius: 7px; }
 .office-data-grid table { min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
 .office-data-grid :is(th,td) { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
 .office-data-grid th { min-width: 44px; padding: 5px; background: var(--surface); color: var(--muted); }
+.office-data-grid thead th { position: sticky; top: 0; z-index: 2; }
+.office-data-grid thead th:first-child { left: 0; z-index: 3; }
+.office-data-grid thead th:has(button) { padding: 0; }
+.office-data-grid thead button { width: 100%; min-height: 26px; padding: 3px 5px; border: 0; border-radius: 0; background: transparent; }
+.office-data-grid thead button[aria-pressed="true"], .office-data-grid td button[data-column-selected] { background: var(--tint); }
 .office-data-grid tbody th { position: sticky; left: 0; z-index: 1; }
 .office-data-grid td { padding: 0; background: var(--bg); }
 .office-data-grid td button {
@@ -36,6 +55,7 @@
 .office-data-grid td button[aria-pressed="true"] {
   color: var(--text); background: var(--tint); box-shadow: inset 0 0 0 2px var(--accent);
 }
+.office-data-grid td button[data-formula] { color: var(--accent); font-variant-numeric: tabular-nums; }
 .office-slide-editor { display: grid; gap: 9px; padding: 12px; }
 .office-slide-text { min-width: 0; border: 1px solid var(--border); border-radius: 7px; display: grid; gap: 6px; }
 .office-slide-text legend { padding: 0 5px; font-size: 12px; color: var(--accent); overflow-wrap: anywhere; }

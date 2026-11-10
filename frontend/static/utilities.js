@@ -1,7 +1,6 @@
 import {$, $$, el, icon, settings, on, emit, ask} from './core.js';
 import {wm} from './windows.js';
 import {fifteenGame,reversiGame} from './arcade.js';
-import {galaxyGame} from './arcade-galaxy.js';
 
 export const calculatorApp={id:'calculator',name:'Калькулятор',subtitle:'Повседневные вычисления',icon:'calc',width:345,height:505,
   mount(win){
@@ -26,12 +25,15 @@ export const calculatorApp={id:'calculator',name:'Калькулятор',subtit
   }
 };
 
-export const gamesApp={id:'games',name:'Игры',subtitle:'Аркады и головоломки',keywords:'галактика galaxy arcade 2048 сапёр змейка реверси пятнашки',icon:'games',width:505,height:700,
+export const gamesApp={id:'games',name:'Игры',subtitle:'Аркады и головоломки',keywords:'2048 сапёр змейка реверси пятнашки',icon:'games',width:505,height:625,
   mount(win){
-    win.body.innerHTML=`<nav class="game-tabs" aria-label="Игры"><button data-game="2048" class="active">2048</button><button data-game="mines">Сапёр</button><button data-game="snake">Змейка</button><button data-game="reversi">Реверси</button><button data-game="fifteen">Пятнашки</button><button data-game="galaxy">Галактика</button></nav><main class="games-content"></main>`;
+    win.body.innerHTML=`<nav class="game-tabs" aria-label="Игры"><button data-game="2048" class="active">2048</button><button data-game="mines">Сапёр</button><button data-game="snake">Змейка</button><button data-game="reversi">Реверси</button><button data-game="fifteen">Пятнашки</button><button data-game="galaxy" title="Открыть в отдельном окне">Галактика ↗</button></nav><main class="games-content"></main>`;
     let cleanup=()=>{};
-    function select(name){cleanup();$$('[data-game]',win.body).forEach(b=>{b.classList.toggle('active',b.dataset.game===name);b.setAttribute('aria-pressed',String(b.dataset.game===name));});const root=$('.games-content',win.body);root.replaceChildren();cleanup=({2048:twoGame,mines:minesGame,snake:snakeGame,reversi:reversiGame,fifteen:fifteenGame,galaxy:galaxyGame}[name])(root,win);}
-    $$('[data-game]',win.body).forEach(b=>b.onclick=()=>select(b.dataset.game));select('2048');return()=>cleanup();
+    const tabs=$$('[data-game]:not([data-game="galaxy"])',win.body);
+    function select(name){cleanup();tabs.forEach(b=>{b.classList.toggle('active',b.dataset.game===name);b.setAttribute('aria-pressed',String(b.dataset.game===name));});const root=$('.games-content',win.body);root.replaceChildren();cleanup=({2048:twoGame,mines:minesGame,snake:snakeGame,reversi:reversiGame,fifteen:fifteenGame}[name])(root,win);}
+    tabs.forEach(b=>b.onclick=()=>select(b.dataset.game));
+    $('[data-game="galaxy"]',win.body).onclick=()=>wm.open('galaxy');
+    select('2048');return()=>cleanup();
   }
 };
 function swipe(element,callback,signal){let x,y;element.addEventListener('pointerdown',e=>{x=e.clientX;y=e.clientY;element.setPointerCapture(e.pointerId);},{signal});element.addEventListener('pointerup',e=>{const dx=e.clientX-x,dy=e.clientY-y;if(Math.max(Math.abs(dx),Math.abs(dy))>22)callback(Math.abs(dx)>Math.abs(dy)?dx>0?'right':'left':dy>0?'down':'up');},{signal});}

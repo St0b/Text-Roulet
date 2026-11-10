@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const {chromium, launchOptions, baseURL} = require('./browser_test_support.cjs');
+const {chromium, launchOptions, baseURL, unlockDesktop} = require('./browser_test_support.cjs');
 
 async function verifyCampaign() {
   const {BLOCK, DEFAULT_SEED, World, indexOf} = await import('../frontend/static/blocks/world.js');
@@ -183,6 +183,7 @@ async function verifyBrowser() {
     const creativeKey = 'greenos-greenblocks-v1';
     const expeditionKey = 'greenos-greenblocks-expedition-v1';
     await page.goto(baseURL);
+    await unlockDesktop(page);
     const oldSave = await page.evaluate(async ({creativeKey, expeditionKey}) => {
       const {BLOCK, DEFAULT_SEED, SIZE} = await import('/assets/blocks/world.js');
       const index = (x, y, z) => (y * SIZE + z) * SIZE + x;

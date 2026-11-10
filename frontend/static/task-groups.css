@@ -1,0 +1,122 @@
+.task.task-group {
+  gap: 6px;
+}
+
+.task-label {
+  min-width: 0;
+}
+
+.task.task-group[aria-expanded="true"] {
+  background: var(--tint);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.task-group-count {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 16px;
+  height: 16px;
+  padding-inline: 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 9px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-group-menu {
+  display: flex;
+  flex-direction: column;
+  width: min(288px, calc(100% - 16px));
+  max-height: min(440px, calc(100dvh - 100px));
+  overflow: hidden;
+}
+
+.task-group-heading {
+  padding: 12px 13px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.task-group-list {
+  display: grid;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.task-group-window {
+  width: 100%;
+  min-width: 0;
+  justify-content: start;
+  padding: 5px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.task-group-window:hover,
+.task-group-window:focus-visible,
+.task-group-window[aria-current="true"] {
+  background: var(--tint);
+}
+
+.task-group-window:focus-visible {
+  outline-offset: -1px;
+}
+
+.task-group-preview {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--icon-tint);
+  color: var(--accent);
+}
+
+.task-group-preview .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.task-group-window-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-group-window-label strong,
+.task-group-window-label small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-group-window-label strong {
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.task-group-window-label small {
+  margin-top: 2px;
+  font-size: 9px;
+}
+
+@media (max-width: 640px) {
+  .task.task-group .task-group-count {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 12px;
+    height: 12px;
+    padding-inline: 2px;
+    font-size: 8px;
+  }
+}

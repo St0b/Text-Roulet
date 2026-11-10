@@ -1,9 +1,11 @@
 import {ask, el, icon, pickFile, download, bytes, emit} from './core.js';
 import {fs} from './storage.js';
-import {OfficePackage, child, children, descendants, attribute} from './office-package.js';
+import {OfficePackage, child, children, descendants, attribute, writeOfficeZip} from './office-package.js';
 import {createWordEditor} from './word-editor.js';
 import {createOfficeDataEditor} from './office-data-editor.js';
 import {DOCX_MIME} from './word-format.js';
+import {createWordPages,wordPageBreak} from './word-pages.js';
+import {officeDraftRecorder,readOfficeDraft} from './recovery-store.js';
 
 const TYPES = {
   pdf: ['PDF', 'application/pdf'],
@@ -59,6 +61,18 @@ function renderWord(packageFile, root, relations, urls, numbers) {
       if (--remaining < 0) break;
       if (block.localName === 'p') {
         const props = child(block, 'pPr');
+        const pageBefore = child(props,'pageBreakBefore');
+        const pageBreaks = descendants(block,'br').filter(item => attribute(item,'type') === 'page');
+        if (pageBefore && !['0','false','off'].includes(attribute(pageBefore,'val'))) {
+          previousId = undefined;
+          holder.append(wordPageBreak());
+        }
+        if (pageBreaks.length && !descendants(block,'t').some(item => item.textContent.trim())
+          && !descendants(block,'drawing').length) {
+          previousId = undefined;
+          holder.append(...pageBreaks.map(wordPageBreak));
+          continue;
+        }
         const style = attribute(child(props, 'pStyle'), 'val') ?? '';
         const heading = /^heading([1-4])$/i.exec(style);
         const numId = attribute(child(child(props,'numPr'),'numId'),'val');
@@ -72,6 +86,11 @@ function renderWord(packageFile, root, relations, urls, numbers) {
         previousId = numbered ? numId : undefined;
         const alignment = attribute(child(props, 'jc'), 'val');
         if (['center', 'right', 'left', 'both'].includes(alignment)) paragraph.style.textAlign = alignment === 'both' ? 'justify' : alignment;
+        const spacing = child(props,'spacing');
+        const interval = Number(attribute(spacing,'line')) / 240;
+        if (interval >= .75 && interval <= 4 && !['exact','atLeast'].includes(attribute(spacing,'lineRule'))) {
+          paragraph.style.lineHeight = String(interval);
+        }
         for (const run of descendants(block, 'r')) {
           if (run.namespaceURI !== block.namespaceURI) continue;
           if (runs-- <= 0 || !textBudget) { truncated = true; break; }
@@ -101,7 +120,7 @@ function renderWord(packageFile, root, relations, urls, numbers) {
               span.append(value);
             }
             if (item.localName === 'tab') span.append('\t');
-            if (item.localName === 'br') span.append(el('br'));
+            if (item.localName === 'br') span.append(el('br',{'data-word-inline-page-break':attribute(item,'type') === 'page' ? 'true' : undefined}));
             if (item.localName === 'drawing') {
               const image = imageFor(item, packageFile, relations, urls);
               if (image) span.append(image);
@@ -112,7 +131,28 @@ function renderWord(packageFile, root, relations, urls, numbers) {
           paragraph.append(span);
         }
         if (!paragraph.textContent && !paragraph.querySelector('img,br')) paragraph.append(el('br'));
-        (numbered ? list : holder).append(paragraph);
+        const inlineBreaks = [...paragraph.querySelectorAll('[data-word-inline-page-break]')];
+        if (!inlineBreaks.length) (numbered ? list : holder).append(paragraph);
+        else {
+          let destination = numbered ? list : holder;
+          for (const marker of inlineBreaks) {
+            const range = document.createRange();
+            range.setStart(paragraph,0);
+            range.setEndBefore(marker);
+            const before = paragraph.cloneNode(false);
+            before.append(range.extractContents());
+            destination.append(before);
+            marker.remove();
+            holder.append(wordPageBreak());
+            destination = holder;
+          }
+          if (numbered) {
+            const continuation = el('p');
+            continuation.append(...paragraph.childNodes);
+            holder.append(continuation);
+            previousId = undefined;
+          } else holder.append(paragraph);
+        }
       } else if (block.localName === 'tbl') {
         previousId = undefined;
         const table = el('table');
@@ -333,19 +373,38 @@ function objectUrls() {
   }};
 }
 
+function blankWorkbook() {
+  const xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const schema = 'http://schemas.openxmlformats.org/';
+  const office = schema + 'officeDocument/2006/relationships';
+  const relationships = schema + 'package/2006/relationships';
+  const sheet = schema + 'spreadsheetml/2006/main';
+  const types = 'application/vnd.openxmlformats-officedocument.spreadsheetml.';
+  return writeOfficeZip(new Map([
+    ['[Content_Types].xml',xml + `<Types xmlns="${schema}package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${types}sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${types}worksheet+xml"/></Types>`],
+    ['_rels/.rels',xml + `<Relationships xmlns="${relationships}"><Relationship Id="workbook" Type="${office}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/_rels/workbook.xml.rels',xml + `<Relationships xmlns="${relationships}"><Relationship Id="sheet1" Type="${office}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`],
+    ['xl/workbook.xml',xml + `<workbook xmlns="${sheet}" xmlns:r="${office}"><sheets><sheet name="Лист1" sheetId="1" r:id="sheet1"/></sheets></workbook>`],
+    ['xl/worksheets/sheet1.xml',xml + `<worksheet xmlns="${sheet}"><dimension ref="A1"/><sheetData/></worksheet>`],
+  ]));
+}
+
 export const documentsApp = {
   id:'office', name:'Документы', subtitle:'Редактор Word, презентации, таблицы и PDF', keywords:'docx pptx xlsx pdf офис',
   icon:'editor', width:940, height:720,
-  mount(win, {id}) {
+  mount(win, {id,draftId}) {
     const open = el('button', {type:'button'}, 'Открыть файл…');
     const newWord = el('button', {type:'button'}, 'Новый документ Word');
+    const newExcel = el('button', {type:'button'}, 'Новая книга Excel');
     const edit = el('button', {type:'button', class:'primary', hidden:true}, 'Редактировать копию');
     const save = el('button', {type:'button', hidden:true}, 'Сохранить в Документы');
+    const saveCopy = el('button', {type:'button', hidden:true}, 'Сохранить как новую копию');
     const exportFile = el('button', {type:'button', hidden:true}, 'Скачать оригинал');
     const original = el('button', {type:'button', hidden:true}, 'К оригиналу');
     const info = el('span', {class:'office-file-info'});
+    const checkpoint = el('span', {class:'office-draft-info',role:'status',hidden:true});
     const holder = el('main', {class:'office-view', 'aria-label':'Содержимое документа'});
-    win.body.append(el('header', {class:'toolbar office-toolbar'}, open, newWord, edit, save, exportFile, original, info), holder);
+    win.body.append(el('header', {class:'toolbar office-toolbar'}, open, newWord, newExcel, edit, save, saveCopy, exportFile, original, info, checkpoint), holder);
     let source, sourceLocal = false, sourcePreview, session, busy = false;
     let urls = objectUrls(), renderAbort = new AbortController();
 
@@ -353,21 +412,57 @@ export const documentsApp = {
     const copyName = (name, format) => name.replace(/\.[^.]+$/, '').slice(0,148) + ' — копия.' + format;
 
     function dirty() {
-      return session?.kind === 'docx' ? session.editor.isDirty()
-        : Boolean(session && session.revision !== session.savedRevision);
+      return Boolean(session?.recovered) || (session?.kind === 'docx' ? session.editor.isDirty()
+        : Boolean(session && session.revision !== session.savedRevision));
     }
     win.hasUnsavedChanges = dirty;
+    win.isOfficeBusy=()=>busy;
+    Object.defineProperty(win,'officeDraftId',{get:()=>session?.recorder.id});
+    win.flushOfficeDraft = () => dirty() ? session.recorder.flush() : Promise.resolve();
+    const flushOnHide = () => { void win.flushOfficeDraft().catch(()=>{}); };
+    window.addEventListener('pagehide',flushOnHide,{signal:win.abort.signal});
+    document.addEventListener('visibilitychange',()=>{
+      if (document.hidden) flushOnHide();
+    },{signal:win.abort.signal});
+
+    function attachRecorder(base,restored) {
+      const current=session;
+      current.recovered=Boolean(restored);
+      current.recorder=officeDraftRecorder({
+        kind:current.kind,base,restored,capture:()=>current.editor.captureDraft(),
+        name:()=>current.kind==='docx'?current.editor.filename():current.name,
+        onStatus:(status,message)=>{
+          if (session!==current) return;
+          checkpoint.hidden=status==='idle';
+          checkpoint.dataset.draftState=status;
+          checkpoint.title=message;
+          checkpoint.textContent={
+            idle:'',pending:'Сохраняем черновик…',saved:'Черновик сохранён',
+            error:'Не удалось сохранить черновик',
+          }[status];
+        },
+      });
+    }
+
+    function changed() {
+      updateControls();
+      if (!session?.recorder) return;
+      if (dirty()) session.recorder.change();
+      else void session.recorder.clear();
+    }
 
     function updateControls() {
       const format = source && documentFormat(source);
       edit.hidden = Boolean(session || !sourcePreview || !format || format === 'pdf');
       save.hidden = !session && !sourceLocal;
-      save.textContent = session?.kind === 'docx' ? 'Сохранить DOCX' : session ? 'Сохранить копию' : 'Сохранить в Документы';
+      saveCopy.hidden = !session?.saveConflict;
+      save.textContent = session?.kind === 'docx' ? 'Сохранить DOCX'
+        : session ? source ? 'Сохранить копию' : 'Сохранить ' + session.kind.toUpperCase() : 'Сохранить в Документы';
       save.classList.toggle('primary',Boolean(session));
       exportFile.hidden = !session && !source;
       exportFile.textContent = session ? 'Скачать ' + session.kind.toUpperCase() : 'Скачать оригинал';
       original.hidden = !session || !source;
-      for (const control of [open,newWord,edit,save,exportFile,original]) control.disabled = busy;
+      for (const control of [open,newWord,newExcel,edit,save,saveCopy,exportFile,original]) control.disabled = busy;
       if (session) {
         const kind = session.kind.toUpperCase();
         const changed = dirty();
@@ -379,31 +474,40 @@ export const documentsApp = {
       win.save = session ? () => save.click() : undefined;
     }
 
-    function run(action) {
+    function run(action, lockView = false) {
       return async () => {
         if (busy || win.abort.signal.aborted) return;
         busy = true;
+        if (lockView) holder.inert = true;
         updateControls();
         try { await action(); }
         catch (error) {
           if (!win.abort.signal.aborted) emit('toast', {message:error.message,error:true});
         } finally {
           busy = false;
+          if (lockView) holder.inert = false;
           if (!win.abort.signal.aborted) updateControls();
         }
       };
     }
 
     async function allowDiscard() {
-      return !dirty() || Boolean(await ask('Закрыть редактирование?', {
-        message:'Изменения в этой копии ещё не сохранены.',confirm:true,ok:'Закрыть без сохранения',
-      }));
+      if (!dirty()) return true;
+      const accepted = await ask('Закрыть редактирование?', {
+        message:'Текущие правки останутся доступны в Центре восстановления.',
+        confirm:true,ok:'Сохранить черновик и продолжить',
+      });
+      if (!accepted) return false;
+      try { await win.flushOfficeDraft(); return true; }
+      catch (error) { emit('toast',{message:'Не удалось сохранить черновик. '+error.message,error:true}); return false; }
     }
     win.beforeClose = () => !busy && allowDiscard();
 
     function reset(keepUrls = false) {
+      session?.recorder.stop();
       session?.editor.dispose?.();
       session = null;
+      checkpoint.hidden=true;
       renderAbort.abort();
       renderAbort = new AbortController();
       if (!keepUrls) {
@@ -429,7 +533,11 @@ export const documentsApp = {
         const view = await preview(node, format, urls, signal);
         if (!signal.aborted) {
           sourcePreview = view;
-          holder.replaceChildren(view);
+          if (format === 'docx') {
+            view.classList.add('word-paper');
+            const pages = createWordPages(view,signal);
+            holder.replaceChildren(el('section',{class:'word-editor'},pages.toolbar,pages.canvas));
+          } else holder.replaceChildren(view);
           updateControls();
         }
       } catch (error) {
@@ -437,14 +545,15 @@ export const documentsApp = {
       }
     }
 
-    function beginWord(content) {
+    function beginWord(content,restored) {
       reset(Boolean(content));
-      const name = content ? copyName(source.name,'docx') : 'Без названия.docx';
+      const name = restored?.meta.name ?? (content ? copyName(source.name,'docx') : 'Без названия.docx');
       const {signal} = renderAbort;
       const resources = urls;
-      const editor = createWordEditor({name,content,imageSource:url => resources.get(url),
-        registerImage:blob => resources.create(blob),onChange:updateControls,signal});
+      const editor = createWordEditor({name,content,draft:restored?.data,imageSource:url => resources.get(url),
+        registerImage:blob => resources.create(blob),onChange:changed,signal});
       session = {kind:'docx',editor};
+      attachRecorder(null,restored);
       win.setTitle(name);
       holder.replaceChildren(editor.element);
       editor.focus();
@@ -468,15 +577,29 @@ export const documentsApp = {
         beginWord(sourcePreview);
         return;
       }
-      const draft = {kind,name:copyName(source.name,kind),revision:0,savedRevision:0};
-      draft.editor = await createOfficeDataEditor(source,kind,{signal:renderAbort.signal,onChange:() => {
-        draft.revision++;
-        if (session === draft) updateControls();
-      }});
-      if (win.abort.signal.aborted) return;
+      await beginData(kind,source,copyName(source.name,kind));
+    }
+
+    async function beginData(kind,node,name,restored) {
+      const draft = {kind,name,revision:0,savedRevision:0};
+      const controller = new AbortController();
+      try {
+        draft.editor = await createOfficeDataEditor(node,kind,{signal:controller.signal,draft:restored?.data,onChange:() => {
+          draft.revision++;
+          if (session === draft) changed();
+        }});
+      } catch (error) {
+        controller.abort();
+        throw error;
+      }
+      if (win.abort.signal.aborted) { controller.abort(); return; }
+      reset();
+      renderAbort = controller;
       session = draft;
+      attachRecorder({name:node.name,mime:mime(node),data:node.data},restored);
       win.setTitle(draft.name);
       holder.replaceChildren(draft.editor.element);
+      updateControls();
     }
 
     function freeName(name) {
@@ -503,51 +626,81 @@ export const documentsApp = {
       if (file.size > MAX_FILE) throw new Error('Лимит одного документа — 32 МБ.');
       const data = new Uint8Array(await file.arrayBuffer());
       if (!win.abort.signal.aborted) await show({name:file.name,mime:file.type,data},true);
-    });
+    }, true);
     newWord.onclick = run(async () => {
       if (!await allowDiscard()) return;
       source = sourcePreview = null;
       sourceLocal = false;
       beginWord();
     });
+    newExcel.onclick = run(async () => {
+      if (!await allowDiscard()) return;
+      const name = 'Новая книга.xlsx';
+      const data = await blankWorkbook();
+      if (win.abort.signal.aborted) return;
+      await beginData('xlsx',{name,data},name);
+      source = sourcePreview = null;
+      sourceLocal = false;
+    }, true);
     edit.onclick = run(beginEdit);
     original.onclick = run(async () => { if (await allowDiscard()) await show(source,sourceLocal); });
-    save.onclick = run(async () => {
+    async function saveDocument(asCopy=false) {
       if (!session) {
-        const node = await fs.write('documents',source.name,source.data,mime(source));
+        const node = await fs.write('documents',freeName(source.name),source.data,mime(source),undefined,{expected:null});
         source = node;
         sourceLocal = false;
       } else {
         const result = await build();
         if (win.abort.signal.aborted) return;
-        const previous = session.savedNode;
-        if (previous && (fs.get(previous.id) !== previous || fs.isTrashed(previous))) {
-          throw new Error('Сохранённая копия уже изменена или перемещена. Скачайте результат отдельно.');
-        }
+        const previous = asCopy ? null : session.savedNode;
         const name = previous ? result.name : freeName(result.name);
-        const node = await fs.write('documents',name,result.data,TYPES[session.kind][1],previous?.id);
+        let node;
+        try {
+          node = await fs.write('documents',name,result.data,TYPES[session.kind][1],previous?.id,{expected:previous??null});
+        } catch(error) {
+          if (previous && error.name==='FileConflictError') session.saveConflict=true;
+          throw error;
+        }
         session.savedNode = node;
+        session.saveConflict=false;
+        session.recovered=false;
         if (session.kind === 'docx') session.editor.markSaved(result,node.name);
         else {
           session.name = node.name;
           session.savedRevision = result.stamp;
         }
-        win.setTitle(node.name);
+        if (dirty()) session.recorder.change();
+        else await session.recorder.clear();
       }
       emit('toast', {message:'Документ сохранён в папку «Документы».'});
-    });
+    }
+    save.onclick = run(() => saveDocument());
+    saveCopy.onclick = run(() => saveDocument(true));
     exportFile.onclick = run(async () => {
       if (!session) { download(source.name,source.data,mime(source)); return; }
       const result = await build();
       if (!win.abort.signal.aborted) download(result.name,result.data,TYPES[session.kind][1]);
     });
+    const cleanup = () => { session?.recorder.stop(); session?.editor.dispose?.(); renderAbort.abort(); urls.dispose(); };
+    if (draftId) return (async()=>{
+      try {
+        const restored=await readOfficeDraft(draftId);
+        if (win.abort.signal.aborted) return cleanup;
+        if (!restored) throw new Error('Черновик больше недоступен.');
+        if (restored.meta.kind==='docx') beginWord(undefined,restored);
+        else await beginData(restored.meta.kind,restored.base,restored.meta.name,restored);
+        updateControls();
+        return cleanup;
+      } catch(error) { cleanup(); throw error; }
+    })();
     const node = id && fs.get(id);
     if (node?.type === 'file') show(node);
     else holder.append(el('div', {class:'office-empty'}, el('h2', {}, 'Просмотр документов'),
-      el('p', {}, 'Создай документ Word или открой PDF, DOCX, PPTX и XLSX с устройства.'),
+      el('p', {}, 'Создай документ Word, книгу Excel или открой PDF, DOCX, PPTX и XLSX с устройства.'),
       el('div', {class:'office-empty-actions'},
         el('button', {type:'button', class:'primary', onclick:() => newWord.click()}, 'Создать DOCX'),
+        el('button', {type:'button', onclick:() => newExcel.click()}, 'Создать XLSX'),
         el('button', {type:'button', onclick:() => open.click()}, 'Выбрать документ'))));
-    return () => { session?.editor.dispose?.(); renderAbort.abort(); urls.dispose(); };
+    return cleanup;
   },
 };

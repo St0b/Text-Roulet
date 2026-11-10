@@ -10,9 +10,19 @@ import {calculatorApp,gamesApp,chatApp} from './utilities.js';
 import {desktopShortcuts} from './shortcuts.js';
 import {loadAvatar,renderAvatar} from './profile.js';
 import {documentsApp} from './documents.js';
+import {playStartupChime} from './startup.js';
+import {galaxyApp} from './arcade-galaxy.js';
+import {applyWallpaper,loadWallpapers} from './wallpapers.js';
+import {recoveryApp} from './recovery.js';
+import {recoverWorkspaceRestore,startWorkspaceSession} from './workspace-backup.js';
 
-const apps=[welcomeApp,linuxApp,filesApp,editorApp,documentsApp,browserApp,radioApp,calculatorApp,gamesApp,blocksApp,chatApp,monitorApp,settingsApp,viewerApp];
-const transientApps = new Set(['chat', 'viewer', 'blocks', 'office']);
+const apps=[welcomeApp,linuxApp,filesApp,editorApp,documentsApp,browserApp,radioApp,calculatorApp,gamesApp,galaxyApp,blocksApp,chatApp,monitorApp,settingsApp,recoveryApp,viewerApp];
+const transientApps = new Set(['chat', 'viewer', 'blocks', 'galaxy', 'office', 'recovery']);
+const readStartupSettings=()=>{
+  try { return localStorage.getItem('greenos-settings-v2'); }
+  catch { return null; }
+};
+const startupSettings=readStartupSettings();
 for(const app of apps)wm.register(app);
 const notices=[];
 function toast({message,error=false}){
@@ -22,17 +32,20 @@ function toast({message,error=false}){
 function renderNotifications(){const root=$('#notification-list');root.replaceChildren();for(const n of notices){root.append(el('article',{class:'notification'},el('strong',{},n.error?'Не удалось выполнить действие':'GreenOS'),el('p',{},n.message),el('small',{},new Date(n.time).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}))));}if(!notices.length)root.append(el('div',{class:'empty'},'Пока всё спокойно.'));}
 on('toast',toast);on('storage-error',message=>toast({message,error:true}));
 function applyAvatar(){renderAvatar($('#launcher-avatar'));renderAvatar($('.lock-avatar'));}
-function applySettings(){const s=settings.all();document.body.dataset.theme=s.theme==='light'?'light':'dark';document.body.classList.toggle('no-animations',!s.animations);document.documentElement.style.setProperty('--accent-color',/^#[a-f\d]{6}$/i.test(s.accent)?s.accent:'#a5d890');$('#desktop').dataset.wallpaper=['hills','midnight','mist','grid'].includes(s.wallpaper)?s.wallpaper:'hills';$('#user-label').textContent=s.name;applyAvatar();}
+function applySettings(){const s=settings.all();document.body.dataset.theme=s.theme==='light'?'light':'dark';document.body.classList.toggle('no-animations',!s.animations);document.documentElement.style.setProperty('--accent-color',/^#[a-f\d]{6}$/i.test(s.accent)?s.accent:'#a5d890');applyWallpaper($('#desktop'));$('#user-label').textContent=s.name;applyAvatar();}
 on('avatar',applyAvatar);
+on('wallpapers',()=>applyWallpaper($('#desktop')));
 on('settings',applySettings);applySettings();
 
 function closePopovers(except) {
+  if (except !== 'task-group') wm.closeTaskGroup();
   for (const id of ['launcher', 'notifications', 'calendar', 'context-menu', 'window-overview']) {
     if (id !== except) $('#'+id).hidden = true;
   }
   if (except !== 'window-overview') $('#window-overview-toggle').setAttribute('aria-expanded', 'false');
   if (except !== 'launcher') $('#start-button').setAttribute('aria-expanded','false');
 }
+on('task-group-open',()=>closePopovers('task-group'));
 let pickingShortcut=false;
 function toggle(id, shortcut=false){const n=$('#'+id),hidden=!n.hidden;closePopovers();n.hidden=hidden;if(id==='launcher'&&!hidden){$('#start-button').setAttribute('aria-expanded','true');pickingShortcut=shortcut;$('#app-search').value='';renderLauncher('');$('#app-search').focus();}}
 function launch(id,options){closePopovers();return wm.open(id,options);}
@@ -64,17 +77,31 @@ $('#notification-toggle').innerHTML=icon('bell');$('#notification-toggle').oncli
 $('#fullscreen').innerHTML=icon('expand');$('#fullscreen').onclick=guard(async()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen());
 $('#lock').innerHTML=icon('lock');
 const lockSurfaces=$$('.topbar,.workarea,.panel');
+const startupSound=$('#startup-sound');
+let startupLocked=false;
 let previousFocus;
-const lock=()=>{
+function syncStartupSound(){
+  const enabled=settings.get('startupSound')!==false;
+  startupSound.setAttribute('aria-pressed',String(enabled));
+  startupSound.textContent=enabled?'Звук запуска включён':'Звук запуска выключен';
+}
+startupSound.onclick=()=>{settings.set({startupSound:settings.get('startupSound')===false});syncStartupSound();};
+function lock(atStartup=false){
+  startupLocked=atStartup;
   previousFocus=document.activeElement;
   closePopovers();
   for(const surface of lockSurfaces)surface.inert=true;
   $('#lock-screen').hidden=false;
+  $('#lock-screen').classList.toggle('from-boot',atStartup);
+  startupSound.hidden=!atStartup;
+  syncStartupSound();
   $('#unlock').focus();
   emit('lock',true);
-};
-$('#lock').onclick=$('#launcher-lock').onclick=lock;
+}
+$('#lock').onclick=$('#launcher-lock').onclick=()=>lock();
 $('#unlock').onclick=()=>{
+  if(startupLocked&&settings.get('startupSound')!==false)void playStartupChime();
+  startupLocked=false;
   $('#lock-screen').hidden=true;
   for(const surface of lockSurfaces)surface.inert=false;
   const focus=previousFocus?.isConnected&&!previousFocus.closest('[hidden]')?previousFocus:$('#start-button');
@@ -134,16 +161,18 @@ function renderCalendar(offset=0){const today=new Date(),date=new Date(today.get
 $('#top-clock').onclick=()=>{renderCalendar();toggle('calendar');};
 on('context',({x,y,items})=>{closePopovers('context-menu');const root=$('#context-menu');root.replaceChildren();for(const item of items){if(item.separator){root.append(el('hr'));continue;}const b=el('button',{role:'menuitem',class:item.danger?'danger':''},item.label);b.onclick=()=>{root.hidden=true;item.action();};root.append(b);}root.hidden=false;root.style.left=`${Math.max(8,Math.min(x,innerWidth-root.offsetWidth-8))}px`;root.style.top=`${Math.max(44,Math.min(y,innerHeight-root.offsetHeight-80))}px`;});
 $('#workarea').oncontextmenu=e=>{if(e.target.closest('.os-window,button'))return;e.preventDefault();emit('context',{x:e.clientX,y:e.clientY,items:[{label:'Добавить ярлык приложения…',action:()=>toggle('launcher',true)},{label:'Упорядочить ярлыки',action:()=>shortcuts.arrange()},{separator:true},{label:'Открыть домашнюю папку',action:()=>launch('files',{folder:'home'})},{label:'Изменить оформление',action:()=>launch('settings')},{separator:true},{label:'Заблокировать экран',action:lock}]});};
-document.addEventListener('pointerdown',e=>{if(!e.target.closest('.popover,#start-button,#notification-toggle,#top-clock,#window-overview-toggle'))closePopovers();});
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('.popover,#tasks,#start-button,#notification-toggle,#top-clock,#window-overview-toggle'))closePopovers();});
 document.addEventListener('keydown',e=>{
+  if(!$('#boot-screen').hidden){e.stopImmediatePropagation();return;}
   if(!$('#lock-screen').hidden){
-    if(e.key==='Enter'||e.key==='Escape'){e.preventDefault();$('#unlock').click();}
+    if(e.key==='Escape'||(e.key==='Enter'&&e.target!==startupSound)){e.preventDefault();$('#unlock').click();}
     e.stopImmediatePropagation();
     return;
   }
   if($('#system-dialog').open)return;
   if(e.key==='Escape'){
     const overviewWasOpen = !overview.hidden;
+    if (wm.closeTaskGroup(true)) { e.preventDefault(); e.stopImmediatePropagation(); }
     closePopovers();
     if (overviewWasOpen) overviewToggle.focus();
     return;
@@ -158,21 +187,39 @@ document.addEventListener('keydown',e=>{
   if(handled){e.preventDefault();e.stopImmediatePropagation();}
 },true);
 window.addEventListener('resize',()=>wm.clamp());
-window.addEventListener('beforeunload',e=>{if(linux.vm||wm.windows.some(w=>w.hasUnsavedChanges?.()||(w.app.id==='editor'&&w.serialize?.().draft!=null))){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(!restoringWorkspace&&(linux.vm||wm.windows.some(w=>w.hasUnsavedChanges?.()||(w.app.id==='editor'&&w.serialize?.().draft!=null)))){e.preventDefault();e.returnValue='';}});
 
-let sessionTimer,ready=false;
-async function saveSession(){if(!ready)return;const session=wm.windows.filter(w=>!transientApps.has(w.app.id)).map(w=>({app:w.app.id,options:w.serialize?.()||w.options,workspace:w.workspace,geometry:w.geometry,maximized:w.maximized,minimized:w.minimized}));try{await state.set('session',session);}catch(e){console.warn('Session save failed',e);}}
-on('windows',()=>{clearTimeout(sessionTimer);sessionTimer=setTimeout(saveSession,500);});
-document.addEventListener('input',e=>{if(e.target.closest('.editor-area,.document-name')){clearTimeout(sessionTimer);sessionTimer=setTimeout(saveSession,700);}});
-window.addEventListener('pagehide',saveSession);
+let sessionTimer,ready=false,restoringWorkspace=false;
+async function saveSession(){if(!ready||restoringWorkspace)return;const session=wm.windows.filter(w=>!transientApps.has(w.app.id)).map(w=>({app:w.app.id,options:w.serialize?.()||w.options,workspace:w.workspace,geometry:w.geometry,maximized:w.maximized,minimized:w.minimized}));await state.set('session',session);}
+const autoSaveSession=()=>{void saveSession().catch(error=>console.warn('Session save failed',error));};
+on('windows',()=>{clearTimeout(sessionTimer);sessionTimer=setTimeout(autoSaveSession,500);});
+document.addEventListener('input',e=>{if(e.target.closest('.editor-area,.document-name')){clearTimeout(sessionTimer);sessionTimer=setTimeout(autoSaveSession,700);}});
+window.addEventListener('pagehide',autoSaveSession);
+on('workspace-backup-save-session',saves=>saves.push(saveSession()));
+on('workspace-restore-start',()=>{
+  restoringWorkspace=true;
+  clearTimeout(sessionTimer);
+  $('#desktop').inert=true;
+});
+on('workspace-restore-failed',()=>{
+  restoringWorkspace=false;
+  $('#desktop').inert=false;
+});
 async function init(){
   try{
-    await openDatabase();await fs.init();shortcuts.render();
-    await loadAvatar().catch(error=>console.warn('Avatar load failed',error));
+    await openDatabase();
+    const repaired=await recoverWorkspaceRestore();
+    await startWorkspaceSession();
+    if(repaired||startupSettings!==readStartupSettings()){location.reload();return false;}
+    await fs.init();shortcuts.render();
+    await Promise.all([
+      loadAvatar().catch(error=>console.warn('Avatar load failed',error)),
+      loadWallpapers().catch(error=>console.warn('Wallpaper load failed',error)),
+    ]);
     const saved=await state.get('session');const workspace=wm.workspace;
     if(Array.isArray(saved)&&saved.length){
       for(const item of saved.slice(0, 15)){
-        if(!wm.apps.has(item.app)||transientApps.has(item.app))continue;
+        if(!item||!wm.apps.has(item.app)||transientApps.has(item.app))continue;
         const win=await wm.open(item.app,item.options||{});win.workspace=Number.isInteger(item.workspace)?Math.max(0,Math.min(2,item.workspace)):0;
         if(item.geometry&&['x','y','width','height'].every(k=>Number.isFinite(item.geometry[k]))){win.geometry={...item.geometry};wm.applyGeometry(win);}
         if (item.maximized) wm.maximize(win, false);
@@ -185,4 +232,9 @@ async function init(){
     notices.unshift({message:'Рабочий стол готов. Linux запускается в отдельной виртуальной машине.',time:Date.now()});renderNotifications();
   }catch(e){console.error(e);toast({message:`Не удалось открыть локальное хранилище: ${e.message}`,error:true});const panel=el('div',{class:'popover',style:'left:50%;top:35%;transform:translateX(-50%);padding:28px;max-width:90vw;width:450px'},el('h2',{},'Не удалось открыть хранилище'),el('p',{},'Разрешите данные сайта и IndexedDB в браузере, затем обновите страницу. Возможно, нужно закрыть старые вкладки GreenOS.'),el('button',{class:'primary',onclick:()=>location.reload()},'Попробовать снова'));$('#desktop').append(panel);}
 }
-init();
+const bootMotion=settings.get('animations')&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
+Promise.all([init(), new Promise(resolve=>setTimeout(resolve,bootMotion?620:0))]).then(([result])=>{
+  if(result===false)return;
+  $('#boot-screen').hidden=true;
+  lock(true);
+});

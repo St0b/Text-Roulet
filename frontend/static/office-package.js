@@ -215,9 +215,9 @@ export class OfficePackage {
     return start;
   }
 
-  async replaceParts(parts) {
+  async replaceParts(parts, remove = new Set()) {
     const replacements = await newRecords(parts);
-    if (!replacements.size) return this.data.slice();
+    if (!replacements.size && !remove.size) return this.data.slice();
     const byOffset = [...this.members].sort((a, b) => a.offset - b.offset);
     const localEnds = new Map(byOffset.map((member, index) =>
       [member, Math.min(byOffset[index + 1]?.offset ?? this.directory, this.directory)]));
@@ -233,7 +233,7 @@ export class OfficePackage {
       if (replacements.has(name)) {
         records.push(replacements.get(name));
         replacements.delete(name);
-      } else {
+      } else if (!remove.has(name)) {
         records.push({
           local: [this.data.subarray(offset, end)],
           central: this.data.slice(recordStart, recordEnd),

@@ -12,3 +12,7 @@ exports.launchOptions=()=>{
   return {headless:true,...(executablePath?{executablePath}:{})};
 };
 exports.baseURL=process.env.GREENOS_TEST_URL||'http://127.0.0.1:8000';
+exports.unlockDesktop=async page=>{
+  await page.locator('#unlock').click({timeout:30000});
+  await page.locator('#lock-screen').waitFor({state:'hidden'});
+};

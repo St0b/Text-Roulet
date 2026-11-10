@@ -1,20 +1,18 @@
-.games-content.galaxy-content {
+.window-content.galaxy-content {
   display: block;
   padding: 12px;
+  background: var(--bg);
+  container-type: inline-size;
 }
 .galaxy-cabinet {
-  --galaxy-panel: #171a2c;
-  --galaxy-ink: #edf2ff;
-  --galaxy-muted: #adb9d3;
-  --galaxy-accent: #7aead5;
-  --galaxy-border: #394461;
-  max-width: 550px;
+  --galaxy-border: color-mix(in srgb, var(--galaxy-accent) 28%, var(--galaxy-panel));
+  max-width: 950px;
   margin: 0 auto;
   padding: 11px;
   border: 1px solid var(--galaxy-border);
   border-radius: 13px;
   background: var(--galaxy-panel);
-  color: var(--galaxy-ink);
+  color: var(--text);
 }
 .galaxy-header {
   display: grid;
@@ -30,21 +28,122 @@
 }
 .galaxy-header h2 {
   margin: 3px 0 0;
-  color: var(--galaxy-ink);
+  color: var(--text);
   font-size: 22px;
   line-height: 1.1;
 }
 .galaxy-header button {
   padding: 5px 7px;
   border: 1px solid var(--galaxy-border);
-  background: #222743;
-  color: var(--galaxy-ink);
+  background: var(--galaxy-hud);
+  color: var(--text);
   font-size: 11px;
 }
-.galaxy-header button:not(:disabled):hover { background: #333d62; }
+.galaxy-header button:not(:disabled):hover {
+  background: color-mix(in srgb, var(--galaxy-accent) 12%, var(--galaxy-hud));
+}
+.galaxy-layout {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(205px, .49fr);
+  align-items: start;
+  gap: 11px;
+}
+.galaxy-sidebar {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--galaxy-border);
+  border-radius: 8px;
+  background: var(--galaxy-hud);
+  padding: 10px;
+}
+.galaxy-wallet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--muted);
+  font: 600 10px/1.25 ui-monospace, monospace;
+  letter-spacing: .045em;
+}
+.galaxy-wallet strong {
+  color: var(--galaxy-accent);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.galaxy-tabs {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 3px;
+}
+.galaxy-tabs button, .galaxy-upgrade button, .galaxy-leave {
+  padding: 6px;
+  border: 1px solid var(--galaxy-border);
+  background: var(--galaxy-panel);
+  color: var(--text);
+  font-size: 11px;
+}
+.galaxy-tabs [aria-pressed="true"] {
+  border-color: var(--galaxy-accent);
+  color: var(--galaxy-accent);
+}
+.galaxy-panel h3, .galaxy-panel h4 {
+  margin: 5px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.galaxy-panel p {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.galaxy-map {
+  display: grid;
+  gap: 4px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.galaxy-mission {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 20px minmax(0,1fr) 12px;
+  justify-items: start;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--galaxy-border);
+  background: var(--galaxy-panel);
+  text-align: left;
+}
+.galaxy-mission[aria-pressed="true"] {
+  border-color: var(--galaxy-accent);
+  background: color-mix(in srgb, var(--galaxy-accent) 10%, var(--galaxy-panel));
+}
+.galaxy-mission strong, .galaxy-mission small {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.galaxy-mission small { color: var(--muted); margin-top: 3px; font-size: 9px; }
+.galaxy-sector-number, .galaxy-sector-check { color: var(--galaxy-accent); font: 600 12px/1 ui-monospace,monospace; }
+.galaxy-upgrade {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 5px;
+  border-top: 1px solid var(--galaxy-border);
+  padding: 4px 0;
+}
+.galaxy-upgrade button { color: var(--galaxy-accent); white-space: nowrap; }
+.galaxy-upgrade button:not(:disabled):hover, .galaxy-tabs button:not(:disabled):hover {
+  background: color-mix(in srgb, var(--galaxy-accent) 10%, var(--galaxy-panel));
+}
 .galaxy-hud {
   display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
+  grid-template-columns: repeat(5,minmax(0,1fr));
   gap: 4px;
   margin-bottom: 7px;
 }
@@ -54,10 +153,10 @@
   padding: 4px 6px 5px;
   border: 1px solid var(--galaxy-border);
   border-radius: 5px;
-  background: #101529;
+  background: var(--galaxy-hud);
 }
 .galaxy-hud span {
-  color: var(--galaxy-muted);
+  color: var(--muted);
   font: 600 9px/1.2 ui-monospace, monospace;
   letter-spacing: .06em;
 }
@@ -72,7 +171,7 @@
   border: 1px solid var(--galaxy-border);
   border-radius: 7px;
   overflow: hidden;
-  background: #0d1127;
+  background: var(--galaxy-space);
 }
 .galaxy-stage canvas {
   display: block;
@@ -89,29 +188,29 @@
   display: grid;
   place-items: center;
   padding: 12px;
-  background: linear-gradient(155deg,#080c21a8,#131b3cbf);
+  background: color-mix(in srgb, var(--galaxy-space) 63%, transparent);
 }
 .galaxy-overlay[hidden] { display: none; }
 .galaxy-message {
   display: grid;
   justify-items: center;
   gap: 9px;
-  width: min(285px,100%);
+  width: min(335px,100%);
   padding: clamp(11px,4vw,20px);
-  border: 1px solid #61719d;
+  border: 1px solid var(--galaxy-border);
   border-radius: 8px;
   text-align: center;
-  background: #141d37ed;
-  box-shadow: 0 0 25px #6f77ff42;
+  background: var(--galaxy-panel);
+  box-shadow: 0 0 25px color-mix(in srgb, var(--galaxy-accent) 23%, transparent);
 }
 .galaxy-title {
-  color: #f2f3ff;
+  color: var(--text);
   font: 800 clamp(24px,6vw,36px)/1 ui-monospace, monospace;
   letter-spacing: -.055em;
 }
 .galaxy-summary, .galaxy-help, .galaxy-status {
   margin: 0;
-  color: var(--galaxy-muted);
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.36;
 }
@@ -122,20 +221,29 @@
   font-family: ui-monospace, monospace;
 }
 .galaxy-help { padding-top: 3px; }
-.galaxy-help kbd { color: var(--galaxy-ink); font-size: 10px; }
+.galaxy-help kbd { color: var(--text); font-size: 10px; }
 .galaxy-action {
   min-height: 35px;
   padding: 7px 15px;
-  border: 1px solid #aaffeb;
+  border: 1px solid var(--galaxy-border);
   background: var(--galaxy-accent);
-  color: #121d31;
+  color: var(--galaxy-button-ink);
   font-weight: 700;
 }
-.galaxy-action:hover { background: #a5f8e8; }
+.galaxy-action:hover { background: color-mix(in srgb, var(--galaxy-accent) 90%, var(--galaxy-panel)); }
+.galaxy-leave[hidden] { display: none; }
 
+@container (max-width: 605px) {
+  .galaxy-layout { grid-template-columns: minmax(0,1fr); }
+  .galaxy-map { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
 @media (max-width: 440px) {
-  .games-content.galaxy-content { padding: 6px; }
+  .window-content.galaxy-content { padding: 6px; }
   .galaxy-cabinet { padding: 7px; }
   .galaxy-header { gap: 4px; }
   .galaxy-header small { font-size: 8px; letter-spacing: .08em; }
+  .galaxy-hud div { padding-inline: 3px; }
+  .galaxy-hud span { font-size: 8px; letter-spacing: 0; }
+  .galaxy-title { font-size: clamp(18px,5vw,24px); }
+  .galaxy-message { gap: 6px; }
 }

@@ -1,4 +1,15 @@
-import {$, $$, el, icon} from './core.js';
+import {$, $$, el, emit, icon} from './core.js';
+
+export const RADIO_VOLUME_KEY = 'greenos-radio-volume-v1';
+export const validRadioVolume = value => typeof value === 'string' && /^(?:100|[1-9]?\d)$/.test(value);
+
+function savedVolume() {
+  try {
+    const value = localStorage.getItem(RADIO_VOLUME_KEY);
+    if (validRadioVolume(value)) return Number(value);
+  } catch { /* Use the default when browser storage is unavailable. */ }
+  return 65;
+}
 
 const stations = [
   {name: 'Main Mix', genre: 'Эклектика', url: 'https://stream.radioparadise.com/mp3-128'},
@@ -25,7 +36,7 @@ export const radioApp = {
         <div class="radio-controls">
           <button class="primary radio-play" type="button" disabled>${icon('play')}Слушать</button>
           <button class="radio-stop" type="button" disabled>Остановить</button>
-          <label class="radio-volume">Громкость <input type="range" min="0" max="100" value="65"></label>
+          <label class="radio-volume">Громкость <input type="range" min="0" max="100"></label>
         </div>
         <h3>Радиостанции</h3>
         <div class="radio-stations"></div>
@@ -49,7 +60,8 @@ export const radioApp = {
     let selected;
     let hls;
     let playback = 0;
-    audio.volume = Number(volume.value) / 100;
+    volume.value = savedVolume();
+    audio.volume = volume.valueAsNumber / 100;
 
     function disconnect() {
       playback++;
@@ -172,7 +184,12 @@ export const radioApp = {
       disconnect();
       status.textContent = 'Остановлено.';
     };
-    volume.oninput = () => { audio.volume = Number(volume.value) / 100; };
+    volume.oninput = () => { audio.volume = volume.valueAsNumber / 100; };
+    volume.onchange = () => {
+      audio.volume = volume.valueAsNumber / 100;
+      try { localStorage.setItem(RADIO_VOLUME_KEY, volume.value); }
+      catch { emit('storage-error','Не удалось сохранить громкость радио.'); }
+    };
 
     return disconnect;
   },

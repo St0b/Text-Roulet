@@ -9,19 +9,30 @@ function currentFrame(win) {
   return {transform, opacity};
 }
 
+function taskButton(appId) {
+  return $(`#tasks [data-app-id="${CSS.escape(appId)}"]`);
+}
+
 function taskFrame(win) {
   const bounds = win.element.getBoundingClientRect();
   const panel = $('.panel').getBoundingClientRect();
-  const task = $(`#tasks [data-window-id="${win.id}"]`)?.getBoundingClientRect() ?? panel;
+  const task = taskButton(win.app.id)?.getBoundingClientRect() ?? panel;
   const x = Math.max(panel.left + 16, Math.min(panel.right - 16, task.left + task.width / 2));
   const dx = x - (bounds.left + bounds.width / 2);
   const dy = task.top + task.height / 2 - (bounds.top + bounds.height / 2);
   return {transform: `translate(${dx}px, ${dy}px) scale(.12)`, opacity: 0};
 }
 
+function windowCount(count) {
+  const last = count % 10, tens = count % 100;
+  return `${count} ${tens >= 11 && tens <= 14 ? 'окон' : last === 1 ? 'окно' : last >= 2 && last <= 4 ? 'окна' : 'окон'}`;
+}
+
 export class WindowManager {
   apps = new Map(); windows = []; active = null; sequence = 0; z = 20;
   workspace = settings.get('workspace');
+  taskGroupApp = null;
+  taskGroupMenu = null;
   register(app) {this.apps.set(app.id, app);}
   async open(appId, options = {}) {
     const app=this.apps.get(appId); if(!app)return;
@@ -49,6 +60,9 @@ export class WindowManager {
     }
     this.windows.push(win);$('#windows').append(win.element);this.applyGeometry(win);this.focus(win);
     win.on('pointerdown',()=>this.focus(win));
+    win.on('focusin',()=>{
+      if(this.active!==win&&!win.minimized&&!win.element.hidden&&win.workspace===this.workspace)this.focus(win);
+    });
     for(const b of $$('.titlebar-actions button',win.element))b.onclick=()=>({close:()=>this.close(win),minimize:()=>this.minimize(win),maximize:()=>this.maximize(win),move:()=>{win.workspace=(win.workspace+1)%3;this.switchWorkspace(win.workspace);this.focus(win);}}[b.dataset.action]());
     const head=$('.titlebar',win.element);head.ondblclick=e=>{if(!e.target.closest('button'))this.maximize(win);};
     this.bindDrag(win,head,false);this.bindDrag(win,$('.resize-handle',win.element),true);
@@ -160,7 +174,7 @@ export class WindowManager {
   }
   async close(win, force=false) {if(!force&&win.beforeClose&&!await win.beforeClose())return;this.cancelMotion(win);win.abort.abort();await win.cleanup();win.element.remove();this.windows=this.windows.filter(w=>w!==win);if(this.active===win)this.focusNext(win);this.renderTasks();this.changed();}
   focusNext(except) {const next=this.windows.filter(w=>w!==except&&!w.minimized&&w.workspace===this.workspace).sort((a,b)=>Number(b.element.style.zIndex)-Number(a.element.style.zIndex))[0];this.active=null;if(next)this.focus(next);else emit('focus',null);}
-  switchWorkspace(index) {this.settleMotions();this.workspace=index;settings.set({workspace:index});for(const w of this.windows)w.element.hidden=w.minimized||w.workspace!==index;this.focusNext(null);this.renderTasks();this.changed();}
+  switchWorkspace(index) {this.closeTaskGroup();this.settleMotions();this.workspace=index;settings.set({workspace:index});for(const w of this.windows)w.element.hidden=w.minimized||w.workspace!==index;this.focusNext(null);this.renderTasks();this.changed();}
   cycle() {const visible=this.windows.filter(w=>w.workspace===this.workspace);if(!visible.length)return;const index=visible.indexOf(this.active);this.restore(visible[(index+1)%visible.length]);}
   bindDrag(win,handle,resize) {
     handle.addEventListener('pointerdown',event=>{
@@ -201,13 +215,149 @@ export class WindowManager {
       for (const type of endEvents) handle.addEventListener(type, stop);
     });
   }
-  renderTasks() {
-    const target=$('#tasks');target.replaceChildren();
-    for(const w of this.windows.filter(w=>w.workspace===this.workspace)){
-      const b=el('button',{class:`task ${!w.minimized&&this.active===w?'active':''}`,title:w.title||w.app.name,'data-window-id':w.id});
-      b.innerHTML=`${icon(w.app.icon)}<span></span>`;$('span',b).textContent=w.title||w.app.name;
-      b.onclick=()=>!w.minimized&&this.active===w?this.minimize(w):this.restore(w);target.append(b);
+  closeTaskGroup(returnFocus = false) {
+    if (!this.taskGroupApp) return false;
+    const trigger = taskButton(this.taskGroupApp);
+    this.taskGroupApp = null;
+    this.taskGroupMenu.hidden = true;
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (returnFocus) trigger?.focus({preventScroll: true});
+    return true;
+  }
+  positionTaskGroup() {
+    if (!this.taskGroupApp) return;
+    const trigger = taskButton(this.taskGroupApp);
+    const desktop = $('#desktop').getBoundingClientRect();
+    const rail = $('#tasks').getBoundingClientRect();
+    const bounds = trigger?.getBoundingClientRect();
+    if (!bounds || bounds.right <= rail.left || bounds.left >= rail.right) {
+      this.closeTaskGroup();
+      return;
     }
+    const menu = this.taskGroupMenu;
+    const center = Math.max(rail.left, Math.min(rail.right, (bounds.left + bounds.right) / 2));
+    const left = Math.max(8, Math.min(center - desktop.left - menu.offsetWidth / 2, desktop.width - menu.offsetWidth - 8));
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.bottom = `${Math.round(desktop.bottom - $('.panel').getBoundingClientRect().top + 7)}px`;
+  }
+  showTaskGroup(appId, edge = 'first') {
+    if (this.taskGroupApp === appId) {
+      this.closeTaskGroup(true);
+      return;
+    }
+    this.closeTaskGroup();
+    emit('task-group-open');
+    if (!this.taskGroupMenu) {
+      const menu = el('div', {id: 'task-group-menu', class: 'task-group-menu popover', role: 'menu', hidden: true});
+      menu.onkeydown = event => {
+        if (event.key === 'Escape' || event.key === 'Tab') {
+          if (event.key === 'Escape') event.preventDefault();
+          this.closeTaskGroup(true);
+          return;
+        }
+        const items = $$('[role="menuitem"]', menu);
+        const index = items.indexOf(document.activeElement);
+        const next = {ArrowDown: (index + 1) % items.length, ArrowUp: (index + items.length - 1) % items.length,
+          Home: 0, End: items.length - 1}[event.key];
+        if (next == null) return;
+        event.preventDefault();
+        items[next]?.focus();
+      };
+      $('#desktop').append(menu);
+      this.taskGroupMenu = menu;
+      $('#tasks').addEventListener('scroll', () => this.positionTaskGroup());
+      window.addEventListener('resize', () => this.positionTaskGroup());
+    }
+    this.taskGroupApp = appId;
+    this.renderTasks();
+    const items = $$('[role="menuitem"]', this.taskGroupMenu);
+    if (!this.taskGroupMenu.hidden) items[edge === 'last' ? items.length - 1 : 0]?.focus();
+  }
+  renderTaskGroup(windows) {
+    const menu = this.taskGroupMenu;
+    const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.windowId : null;
+    if (!windows || windows.length < 2) {
+      this.closeTaskGroup(Boolean(focused));
+      return;
+    }
+    const app = windows[0].app;
+    const label = `${app.name} · ${windowCount(windows.length)}`;
+    const list = el('div', {class: 'task-group-list', role: 'none'});
+    for (const win of windows) {
+      const title = win.title || app.name;
+      const current = this.active === win && !win.minimized;
+      const button = el('button', {class: 'task-group-window', title, type: 'button', role: 'menuitem', tabindex: '-1',
+        'data-window-id': win.id, 'aria-current': current ? 'true' : undefined});
+      const preview = el('span', {class: 'task-group-preview', 'aria-hidden': 'true'});
+      preview.innerHTML = icon(app.icon);
+      button.append(preview, el('span', {class: 'task-group-window-label'},
+        el('strong', {}, title), el('small', {}, win.minimized ? 'Свёрнуто' : current ? 'Активное окно' : 'Открыто')));
+      button.onclick = () => {
+        this.closeTaskGroup();
+        this.restore(win);
+        win.element.focus({preventScroll: true});
+      };
+      list.append(button);
+    }
+    menu.setAttribute('aria-label', label);
+    menu.replaceChildren(el('div', {class: 'task-group-heading', role: 'presentation'}, label), list);
+    menu.hidden = false;
+    this.positionTaskGroup();
+    if (focused && !menu.hidden) {
+      const item = $(`[data-window-id="${CSS.escape(focused)}"]`, list) ?? list.firstElementChild;
+      item?.focus();
+    }
+  }
+  renderTasks() {
+    const target = $('#tasks');
+    const groups = new Map();
+    for (const win of this.windows) {
+      if (win.workspace !== this.workspace) continue;
+      const group = groups.get(win.app.id) ?? [];
+      group.push(win);
+      groups.set(win.app.id, group);
+    }
+    const existing = new Map([...target.children].map(button => [button.dataset.appId, button]));
+    let index = 0;
+    for (const [appId, windows] of groups) {
+      const [win] = windows;
+      const grouped = windows.length > 1;
+      const button = existing.get(appId) ?? el('button', {type: 'button', 'data-app-id': appId});
+      const title = grouped ? win.app.name : win.title || win.app.name;
+      button.className = `task${grouped ? ' task-group' : ''}`;
+      button.classList.toggle('active', windows.some(item => !item.minimized && this.active === item));
+      button.title = grouped ? `${title} · ${windowCount(windows.length)}` : title;
+      button.setAttribute('aria-label', button.title);
+      button.innerHTML = icon(win.app.icon);
+      button.append(el('span', {class: 'task-label'}, title));
+      if (grouped) {
+        delete button.dataset.windowId;
+        button.setAttribute('aria-haspopup', 'menu');
+        if (this.taskGroupMenu) button.setAttribute('aria-controls', 'task-group-menu');
+        button.setAttribute('aria-expanded', String(this.taskGroupApp === appId));
+        button.append(el('b', {class: 'task-group-count', 'aria-hidden': 'true'}, String(windows.length)));
+        button.onclick = () => this.showTaskGroup(appId);
+        button.onkeydown = event => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          if (this.taskGroupApp !== appId) this.showTaskGroup(appId, event.key === 'ArrowUp' ? 'last' : 'first');
+        };
+      } else {
+        button.dataset.windowId = win.id;
+        for (const attr of ['aria-haspopup', 'aria-controls', 'aria-expanded']) button.removeAttribute(attr);
+        button.onclick = () => {
+          this.closeTaskGroup();
+          if (!win.minimized && this.active === win) this.minimize(win);
+          else this.restore(win);
+        };
+        button.onkeydown = null;
+      }
+      if (target.children[index] !== button) target.insertBefore(button, target.children[index] ?? null);
+      existing.delete(appId);
+      index++;
+    }
+    for (const button of existing.values()) button.remove();
+    if (this.taskGroupApp) this.renderTaskGroup(groups.get(this.taskGroupApp));
     $$('.workspace-switch button').forEach((b,i)=>{b.classList.toggle('active',i===this.workspace);b.classList.toggle('occupied',this.windows.some(w=>w.workspace===i));});
   }
   changed() {emit('windows',this.windows);}
@@ -215,4 +365,5 @@ export class WindowManager {
 }
 export const wm=new WindowManager();
 on('settings', () => { if (!motionEnabled()) wm.settleMotions(); });
+on('lock', locked => { if (locked) wm.closeTaskGroup(); });
 reducedMotion.addEventListener('change', () => { if (reducedMotion.matches) wm.settleMotions(); });

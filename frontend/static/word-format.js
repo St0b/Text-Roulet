@@ -161,9 +161,11 @@ export async function buildDocx(editor, imageSource) {
     const style = element ? styled(element, baseStyle) : baseStyle;
     const alignment = element?.style.textAlign || element?.getAttribute('align');
     const align = {left:'left',right:'right',center:'center',justify:'both'}[alignment];
+    const interval = Number(element?.style.lineHeight);
     const heading = element?.tagName.match(/^H([1-4])$/)?.[1];
     const properties = (heading ? `<w:pStyle w:val="Heading${heading}"/>` : '')
       + (list ? `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${list.id}"/></w:numPr>` : '')
+      + (interval >= .75 && interval <= 4 ? `<w:spacing w:line="${Math.round(interval * 240)}" w:lineRule="auto"/>` : '')
       + (align ? `<w:jc w:val="${align}"/>` : '');
     const content = [...nodes];
     if (content.at(-1)?.nodeName === 'BR') content.pop();
@@ -178,7 +180,9 @@ export async function buildDocx(editor, imageSource) {
       if (!blockTags.has(node.nodeName)) { inline.push(node); continue; }
       if (inline.some(item => item.nodeType === Node.ELEMENT_NODE || item.textContent.trim())) xml += await paragraph(null, inline);
       inline = [];
-      if (node.tagName === 'TABLE') {
+      if (node.hasAttribute('data-word-page-break')) {
+        xml += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+      } else if (node.tagName === 'TABLE') {
         const rows = [];
         let columns = 1;
         for (const row of node.rows) {

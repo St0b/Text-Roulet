@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const {deflateRawSync} = require('node:zlib');
 const fs = require('node:fs');
-const {chromium,launchOptions,baseURL} = require('./browser_test_support.cjs');
+const {chromium,launchOptions,baseURL,unlockDesktop} = require('./browser_test_support.cjs');
 
 function zip(parts) {
   const local = [], central = [];
@@ -84,6 +84,16 @@ const book = zip({
   const browser = await chromium.launch(launchOptions());
   try {
     const page = await browser.newPage({viewport:{width:1440,height:960}});
+    await page.addInitScript(() => {
+      const Audio = window.AudioContext;
+      if (!Audio) return;
+      window.AudioContext = class extends Audio {
+        async resume() {
+          await super.resume();
+          window.greenosChimes = (window.greenosChimes || 0) + 1;
+        }
+      };
+    });
     page.setDefaultTimeout(12000);
     const errors = [];
     page.on('pageerror', error => { errors.push(error.message); console.error(error); });
@@ -101,6 +111,19 @@ const book = zip({
     }
 
     await page.goto(baseURL);
+    await page.locator('#unlock').waitFor();
+    assert.ok(await page.locator('#workarea').evaluate(node=>node.inert));
+    fs.mkdirSync('test-results',{recursive:true});
+    await page.screenshot({path:'test-results/greenos-startup-lock.png',animations:'disabled'});
+    await unlockDesktop(page);
+    if (await page.evaluate(()=>Boolean(window.AudioContext))) {
+      await page.waitForFunction(()=>window.greenosChimes===1);
+    }
+    await page.reload();
+    await page.locator('#unlock').waitFor();
+    await page.locator('#startup-sound').click();
+    assert.equal(await page.locator('#startup-sound').getAttribute('aria-pressed'),'false');
+    await unlockDesktop(page);
     await page.locator('#start-button .shell-logo svg').waitFor();
     await close(page.locator('.os-window[data-app="welcome"]'));
     const palette = () => page.evaluate(() => ['.panel','.topbar','.desktop-icon .app-icon'].map(selector => {
@@ -117,7 +140,6 @@ const book = zip({
     await settings.getByRole('button',{name:'Цвет #bdabe4'}).click();
     await page.waitForTimeout(190);
     assert.ok((await palette()).every((value,index) => value !== light[index]));
-    await settings.locator('[data-tab="user"]').click();
     const avatar = Buffer.from(await page.evaluate(() => {
       const canvas = document.createElement('canvas');
       canvas.width = 80;
@@ -129,6 +151,10 @@ const book = zip({
       context.fillRect(26,12,28,28);
       return canvas.toDataURL('image/png').split(',')[1];
     }), 'base64');
+    await upload(settings.getByRole('button',{name:'Добавить обои'}), 'Мои обои.png', 'image/png', avatar);
+    await page.waitForFunction(()=>document.querySelector('#desktop').dataset.wallpaper==='custom');
+    assert.match(await page.locator('.landscape').evaluate(node=>node.style.backgroundImage),/^url\("blob:/);
+    await settings.locator('[data-tab="user"]').click();
     await upload(settings.getByRole('button',{name:'Выбрать изображение'}), 'avatar.png', 'image/png', avatar);
     await settings.locator('.profile-avatar img').waitFor();
     await close(settings);
@@ -138,7 +164,7 @@ const book = zip({
     await page.locator('#lock').click();
     assert.ok(await page.locator('#workarea').evaluate(node => node.inert));
     await page.locator('.lock-avatar img').waitFor();
-    await page.getByRole('button',{name:'Вернуться в GreenOS'}).click();
+    await unlockDesktop(page);
     await page.locator('#workarea').click({button:'right',position:{x:440,y:100}});
     await page.getByRole('menuitem',{name:'Добавить ярлык приложения…'}).click();
     await page.locator('#app-search').fill('Калькулятор');
@@ -159,11 +185,14 @@ const book = zip({
     assert.equal(await shortcut.getAttribute('data-row'),'1');
     assert.equal(await page.locator('.os-window[data-app="calculator"]').count(),0);
 
-    fs.mkdirSync('test-results',{recursive:true});
     await start.click();
     await page.locator('#launcher-avatar img').waitFor();
     await page.screenshot({path:'test-results/greenos-personalization.png',animations:'disabled'});
     await page.reload();
+    await page.locator('#startup-sound').waitFor();
+    assert.equal(await page.locator('#startup-sound').getAttribute('aria-pressed'),'false');
+    await unlockDesktop(page);
+    await page.waitForFunction(()=>document.querySelector('#desktop').dataset.wallpaper==='custom');
     await shortcut.waitFor();
     assert.equal(await shortcut.getAttribute('data-col'),'2');
     await start.click();
@@ -171,6 +200,9 @@ const book = zip({
     await page.locator('#launcher-avatar').click();
     await settings.getByRole('button',{name:'Удалить аватар'}).click();
     await settings.locator('.profile-avatar img').waitFor({state:'detached'});
+    await settings.locator('[data-tab="appearance"]').click();
+    await settings.locator('.custom-wallpaper-remove').click();
+    await page.waitForFunction(()=>document.querySelector('#desktop').dataset.wallpaper==='hills');
     await close(settings);
     // Restoring the welcome window may obscure the shortcut after a reload.
     const welcome = page.locator('.os-window[data-app="welcome"]');
@@ -178,7 +210,7 @@ const book = zip({
     await shortcut.click({button:'right'});
     await page.getByRole('menuitem',{name:'Убрать ярлык'}).click();
     await shortcut.waitFor({state:'detached'});
-    console.log('PASS: theme and accent across the shell, local avatar, grid drag and persistent shortcuts');
+    console.log('PASS: startup chime and lock, wallpaper persistence, shell theme, avatar and shortcuts');
 
     await launch('Документы');
     const office = page.locator('.os-window[data-app="office"]');
@@ -222,6 +254,23 @@ const book = zip({
       return [descendants(await presentation.xml('ppt/slides/b.xml'),'t')[0].textContent,
         descendants(await workbook.xml('xl/worksheets/first.xml'),'t')[0].textContent];
     }),['Изменённый слайд','Новая строка']);
+    await office.getByRole('button',{name:'Новая книга Excel',exact:true}).click();
+    await office.locator('.window-name').getByText('Новая книга.xlsx',{exact:true}).waitFor();
+    const cellValue = office.getByRole('textbox',{name:'Значение ячейки'});
+    await cellValue.fill('21');
+    await office.getByRole('button',{name:'Применить',exact:true}).click();
+    await office.locator('[data-cell="A1"]').getByText('21',{exact:true}).waitFor();
+    await office.locator('[data-cell="B1"]').click();
+    await cellValue.fill('=A1*2');
+    await office.getByRole('button',{name:'Сохранить XLSX',exact:true}).click();
+    await office.getByText('XLSX · Сохранено',{exact:true}).waitFor();
+    assert.deepEqual(await page.evaluate(async ()=>{
+      const {fs} = await import('/assets/storage.js');
+      const {OfficePackage,descendants} = await import('/assets/office-package.js');
+      const file = fs.list('documents').find(node=>node.name==='Новая книга.xlsx');
+      const xml = await new OfficePackage(file.data).xml('xl/worksheets/sheet1.xml');
+      return [descendants(xml,'f')[0].textContent,...descendants(xml,'v').map(item=>item.textContent)];
+    }),['A1*2','21','42']);
     await upload(open,'Пример.pdf','application/pdf',pdfFixture());
     if (await page.evaluate(() => navigator.pdfViewerEnabled)) {
       await office.locator('iframe.office-pdf').waitFor();
@@ -264,11 +313,21 @@ const book = zip({
     await games.getByRole('button',{name:'Пятнашки',exact:true}).click();
     await games.locator('.fifteen-board .movable').first().click();
     await games.getByText('Ходы: 1',{exact:true}).waitFor();
-    await games.getByRole('button',{name:'Галактика',exact:true}).click();
-    await games.getByRole('button',{name:'Начать полёт',exact:true}).click();
-    await games.locator('.galaxy-overlay').waitFor({state:'hidden'});
+    await games.locator('[data-game="galaxy"]').click();
+    const galaxy = page.locator('.os-window[data-app="galaxy"]');
+    await galaxy.getByRole('button',{name:'Начать полёт',exact:true}).click();
+    assert.equal(await games.locator('.galaxy-cabinet').count(),0);
+    await galaxy.locator('.galaxy-overlay').waitFor({state:'hidden'});
     await page.keyboard.press('KeyP');
-    await games.getByRole('button',{name:'Продолжить',exact:true}).waitFor();
+    await galaxy.getByRole('button',{name:'Продолжить',exact:true}).waitFor();
+    const galaxyTheme = () => galaxy.locator('.galaxy-content').evaluate(node=>node.style.cssText);
+    const previousTheme = await galaxyTheme();
+    await page.evaluate(async ()=>{
+      const {settings} = await import('/assets/core.js');
+      settings.set({accent:'#8fcac5',theme:'dark'});
+    });
+    assert.notEqual(await galaxyTheme(),previousTheme);
+    await close(galaxy);
     await games.getByRole('button',{name:'Пятнашки',exact:true}).click();
     await page.setViewportSize({width:390,height:844});
     await page.waitForTimeout(120);

@@ -1,8 +1,9 @@
-import {$, $$, el, icon, settings, on, emit, ask, pickFile, download, bytes, escapeHTML} from './core.js';
+import {$, $$, el, icon, settings, on, emit, ask, pickFile, download, bytes, escapeHTML, uid, GREENOS_VERSION} from './core.js';
 import {fs, state, transaction} from './storage.js';
 import {wm} from './windows.js';
 import {linux, sendToLinux, receiveFromLinux} from './linux.js';
 import {hasAvatar, removeAvatar, renderAvatar, updateAvatar} from './profile.js';
+import {WALLPAPER_PRESETS, WALLPAPER_ACCEPT, addWallpaper, customWallpapers, removeWallpaper} from './wallpapers.js';
 import {documentFormat} from './documents.js';
 
 export const guard = callback => async(...args)=>{try{return await callback(...args);}catch(e){console.error(e);emit('toast',{message:e.message||'Операция не выполнена',error:true});}};
@@ -25,7 +26,7 @@ function isTextFile(node) {
 }
 export const welcomeApp={id:'welcome',name:'Добро пожаловать',subtitle:'Знакомство с GreenOS',icon:'leaf',singleton:true,width:840,height:555,
   mount(win){
-    win.body.innerHTML=`<div class="welcome-layout"><aside class="welcome-side"><img src="/assets/leaf.svg" class="welcome-logo" alt=""><h2>green<span>os</span></h2><small>LINUX EDITION / 2.0</small><div style="height:35px"></div><div class="welcome-step active"><span>01</span>Добро пожаловать</div><div class="welcome-step"><span>02</span>Ваша Linux</div><div class="welcome-step"><span>03</span>Ваше пространство</div><footer>Создана для исследования.<br>Работает в вашем браузере.</footer></aside><main class="welcome-main"><div class="eyebrow">ПРИВЕТ. ВЫ ДОМА.</div><h1>Ваш рабочий стол.<br>Теперь <span>с Linux.</span></h1><p>Привычная среда, свободная от границ. Запускайте настоящий Linux, работайте с файлами и создавайте своё — в одной вкладке.</p><div class="welcome-actions"><button class="primary start-linux">${icon('linux')}Запустить Linux ${icon('arrow')}</button><button class="start-tinycore">Графический Linux</button></div><div class="welcome-cards"><article class="welcome-card">${icon('linux')}<h3>Настоящее ядро Linux</h3><p>Buildroot и Tiny Core на x86.<br>Команды, процессы, программы.</p></article><article class="welcome-card">${icon('files')}<h3>Файлы остаются с вами</h3><p>Локальное хранилище и обмен<br>файлами с виртуальной машиной.</p></article></div><div class="welcome-foot"><label><input class="show-welcome" type="checkbox" ${settings.get('welcome')?'checked':''}>Показывать при запуске</label><button class="text-button open-guide">Краткое руководство ↗</button></div></main></div>`;
+    win.body.innerHTML=`<div class="welcome-layout"><aside class="welcome-side"><img src="/assets/leaf.svg" class="welcome-logo" alt=""><h2>green<span>os</span></h2><small>LINUX EDITION / ${GREENOS_VERSION}</small><div style="height:35px"></div><div class="welcome-step active"><span>01</span>Добро пожаловать</div><div class="welcome-step"><span>02</span>Ваша Linux</div><div class="welcome-step"><span>03</span>Ваше пространство</div><footer>Создана для исследования.<br>Работает в вашем браузере.</footer></aside><main class="welcome-main"><div class="eyebrow">ПРИВЕТ. ВЫ ДОМА.</div><h1>Ваш рабочий стол.<br>Теперь <span>с Linux.</span></h1><p>Привычная среда, свободная от границ. Запускайте настоящий Linux, работайте с файлами и создавайте своё — в одной вкладке.</p><div class="welcome-actions"><button class="primary start-linux">${icon('linux')}Запустить Linux ${icon('arrow')}</button><button class="start-tinycore">Графический Linux</button></div><div class="welcome-cards"><article class="welcome-card">${icon('linux')}<h3>Настоящее ядро Linux</h3><p>Buildroot и Tiny Core на x86.<br>Команды, процессы, программы.</p></article><article class="welcome-card">${icon('files')}<h3>Файлы остаются с вами</h3><p>Локальное хранилище и обмен<br>файлами с виртуальной машиной.</p></article></div><div class="welcome-foot"><label><input class="show-welcome" type="checkbox" ${settings.get('welcome')?'checked':''}>Показывать при запуске</label><button class="text-button open-guide">Краткое руководство ↗</button></div></main></div>`;
     $('.start-linux',win.body).onclick=()=>wm.open('linux',{autostart:true});
     $('.start-tinycore',win.body).onclick=()=>wm.open('linux',{profile:'tinycore',autostart:true});
     $('.show-welcome',win.body).onchange=e=>settings.set({welcome:e.target.checked});
@@ -397,7 +398,9 @@ async function importFiles(file){
   for(const id of ['home','desktop','documents','downloads','pictures','shared'])if(byId.get(id)?.type!=='dir')throw new Error('В архиве отсутствуют системные папки.');
   for(const n of nodes){const visited=new Set();let current=n;while(current){if(visited.has(current.id))throw new Error('Цикл папок в архиве.');visited.add(current.id);if(current.id==='home'){if(current.parent!==null)throw new Error('Повреждена домашняя папка.');break;}const parent=byId.get(current.parent);if(parent?.type!=='dir')throw new Error('Папка в архиве отсутствует.');current=parent;}}
   if(!await ask('Восстановить файлы из архива?',{message:'Текущие файлы рабочего стола будут заменены файлами из архива. Снимки Linux сохранятся.',confirm:true,ok:'Восстановить'}))return;
-  await transaction('files','readwrite',s=>{s.clear();for(const n of nodes)s.put(n);});fs.nodes=nodes;emit('files');notify('Архив файлов восстановлен.');
+  await transaction('files','readwrite',s=>{s.clear();for(const n of nodes)s.put({...n,revision:uid()});});
+  await fs.refresh({broadcast:true});
+  notify('Архив файлов восстановлен.');
 }
 export const settingsApp={id:'settings',name:'Настройки',subtitle:'Оформление и система',icon:'settings',singleton:true,width:820,height:570,
   mount(win,options){
@@ -411,12 +414,54 @@ export const settingsApp={id:'settings',name:'Настройки',subtitle:'Оф
       const button=$('.avatar-remove',root);
       if(button)button.hidden=!hasAvatar();
     }
+    function updateWallpaperSelection() {
+      const selected = settings.get('wallpaper');
+      const active = $$('.wallpaper-choice', root).some(button => button.dataset.wallpaper === selected) ? selected : 'hills';
+      for (const button of $$('.wallpaper-choice', root)) {
+        const chosen = button.dataset.wallpaper === active;
+        button.classList.toggle('active', chosen);
+        button.setAttribute('aria-pressed', String(chosen));
+      }
+    }
+    function renderWallpapers() {
+      const gallery = $('.wallpaper-options', root);
+      if (!gallery) return;
+      function choice(id, name, url) {
+        const sample = el('div', {class:'sample', 'aria-hidden':'true'});
+        if (url) sample.style.backgroundImage = `url("${url}")`;
+        return el('button', {type:'button', class:'wallpaper-choice', 'data-wallpaper':id, title:name,
+          onclick:() => settings.set({wallpaper:id})}, sample, el('small', {}, name));
+      }
+      const defaults = WALLPAPER_PRESETS.map(([id, name]) => choice(id, name));
+      const custom = customWallpapers().map(({id, name, url}) => {
+        const remove = el('button', {type:'button', class:'custom-wallpaper-remove icon-button',
+          title:`Удалить обои «${name}»`, 'aria-label':`Удалить обои «${name}»`});
+        remove.innerHTML = icon('trash');
+        remove.onclick = guard(async () => {
+          remove.disabled = true;
+          try { await removeWallpaper(id); } finally { remove.disabled = false; }
+        });
+        return el('div', {class:'custom-wallpaper-option'}, choice(id, name, url), remove);
+      });
+      gallery.replaceChildren(...defaults, ...custom);
+      updateWallpaperSelection();
+    }
     on('avatar',refreshProfileAvatar,win.abort.signal);
+    on('wallpapers',renderWallpapers,win.abort.signal);
+    on('settings',updateWallpaperSelection,win.abort.signal);
     function render(){
       $$('[data-tab]',win.body).forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
       if(tab==='appearance'){
-        root.innerHTML=`<h2>Сделайте GreenOS своей</h2><p style="font-size:11px">Немного цвета. Немного вас.</p><h3>Обои рабочего стола</h3><div class="wallpaper-options">${[['hills','Зелёные холмы'],['midnight','Полночь'],['mist','Туман'],['grid','Сетка']].map(([id,n])=>`<button class="wallpaper-choice ${settings.get('wallpaper')===id?'active':''}" data-wallpaper="${id}"><div class="sample"></div><small>${n}</small></button>`).join('')}</div><div class="setting-line"><div><strong>Тема интерфейса</strong><small>Для всех окон рабочего стола</small></div><select class="theme-choice" aria-label="Тема"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div><div class="setting-line"><div><strong>Акцентный цвет</strong><small>Выделения и элементы управления</small></div><div class="accent-options">${['#a5d890','#8fcac5','#d8c38f','#bdabe4'].map(c=>`<button data-color="${c}" style="background:${c}" title="${c}" aria-label="Цвет ${c}" class="${settings.get('accent')===c?'active':''}"></button>`).join('')}</div></div><label class="setting-line"><div><strong>Анимации</strong><small>Плавное открытие окон</small></div><input class="animations-choice" type="checkbox" ${settings.get('animations')?'checked':''}></label>`;
-        $$('.wallpaper-choice',root).forEach(b=>b.onclick=()=>{settings.set({wallpaper:b.dataset.wallpaper});render();});
+        root.innerHTML=`<h2>Сделайте GreenOS своей</h2><p style="font-size:11px">Немного цвета. Немного вас.</p><h3>Обои рабочего стола</h3><div class="wallpaper-options" role="group" aria-label="Выбор обоев"></div><div class="custom-wallpaper-add"><button class="wallpaper-add-btn" type="button">${icon('upload')}Добавить обои</button><small>PNG, JPEG или WebP · до 15 МБ</small></div><div class="setting-line"><div><strong>Тема интерфейса</strong><small>Для всех окон рабочего стола</small></div><select class="theme-choice" aria-label="Тема"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div><div class="setting-line"><div><strong>Акцентный цвет</strong><small>Выделения и элементы управления</small></div><div class="accent-options">${['#a5d890','#8fcac5','#d8c38f','#bdabe4'].map(c=>`<button data-color="${c}" style="background:${c}" title="${c}" aria-label="Цвет ${c}" class="${settings.get('accent')===c?'active':''}"></button>`).join('')}</div></div><label class="setting-line"><div><strong>Анимации</strong><small>Плавное открытие окон</small></div><input class="animations-choice" type="checkbox" ${settings.get('animations')?'checked':''}></label>`;
+        renderWallpapers();
+        const add = $('.wallpaper-add-btn', root);
+        add.onclick = guard(async () => {
+          add.disabled = true;
+          try {
+            const [file] = await pickFile(WALLPAPER_ACCEPT);
+            if (file && !win.abort.signal.aborted) await addWallpaper(file);
+          } finally { add.disabled = false; }
+        });
         $('.theme-choice',root).value=settings.get('theme');$('.theme-choice',root).onchange=e=>settings.set({theme:e.target.value});
         $$('[data-color]',root).forEach(b=>b.onclick=()=>{settings.set({accent:b.dataset.color});render();});$('.animations-choice',root).onchange=e=>settings.set({animations:e.target.checked});
       }else if(tab==='user'){
@@ -428,10 +473,10 @@ export const settingsApp={id:'settings',name:'Настройки',subtitle:'Оф
         refreshProfileAvatar();
         $('.user-name',root).value=settings.get('name');$('.user-form',root).onsubmit=e=>{e.preventDefault();settings.set({name:$('.user-name',root).value.trim()||'green'});refreshProfileAvatar();notify('Имя сохранено.');};
       }else if(tab==='data'){
-        root.innerHTML=`<h2>Данные под контролем</h2><p style="font-size:12px">Файлы и снимки хранятся в этом браузере, на этом адресе сайта. Очистка данных сайта удаляет их.</p><div class="setting-line"><div><strong>Резервная копия файлов</strong><small>Все папки и документы рабочего стола</small></div><button class="backup">${icon('download')}Экспорт</button></div><div class="setting-line"><div><strong>Восстановить файлы</strong><small>Из архива greenos-files.json</small></div><button class="restore">${icon('upload')}Импорт</button></div><div class="setting-line"><div><strong>Снимок виртуальной машины</strong><small>Сохраняет память Linux и состояние устройств</small></div><button class="open-linux">Открыть Linux</button></div><div class="setting-line"><div><strong>Защита от очистки хранилища</strong><small class="persistent-label">Браузер может запросить разрешение</small></div><button class="persist">Запросить</button></div><p style="margin-top:20px;font-size:11px">Архив файлов и снимок Linux сохраняются отдельно. Для полной резервной копии экспортируйте оба.</p>`;
-        $('.backup',root).onclick=guard(exportFiles);$('.restore',root).onclick=guard(async()=>{const [f]=await pickFile('.json');if(f)await importFiles(f);});$('.open-linux',root).onclick=()=>wm.open('linux');$('.persist',root).onclick=guard(async()=>{const granted=await navigator.storage.persist?.();$('.persistent-label',root).textContent=granted?'Постоянное хранилище разрешено':'Браузер не предоставил постоянное хранилище.';});
+        root.innerHTML=`<h2>Данные под контролем</h2><p style="font-size:12px">Данные GreenOS хранятся в этом браузере, на этом адресе сайта. Очистка данных сайта удалит локальные файлы и сохранения.</p><div class="setting-line"><div><strong>Резервная копия рабочего пространства</strong><small>Файлы, настройки, черновики и игровые сохранения</small></div><button class="open-recovery primary" type="button">Центр восстановления</button></div><div class="setting-line"><div><strong>Резервная копия файлов</strong><small>Только папки и документы рабочего стола · JSON</small></div><button class="backup">${icon('download')}Экспорт</button></div><div class="setting-line"><div><strong>Восстановить файлы</strong><small>Из архива greenos-files.json</small></div><button class="restore">${icon('upload')}Импорт</button></div><div class="setting-line"><div><strong>Снимок виртуальной машины</strong><small>Сохраняет память Linux и состояние устройств</small></div><button class="open-linux">Открыть Linux</button></div><div class="setting-line"><div><strong>Защита от очистки хранилища</strong><small class="persistent-label">Браузер может запросить разрешение</small></div><button class="persist">Запросить</button></div>`;
+        $('.open-recovery',root).onclick=()=>wm.open('recovery');$('.backup',root).onclick=guard(exportFiles);$('.restore',root).onclick=guard(async()=>{const [f]=await pickFile('.json');if(f)await importFiles(f);});$('.open-linux',root).onclick=()=>wm.open('linux');$('.persist',root).onclick=guard(async()=>{const granted=await navigator.storage.persist?.();$('.persistent-label',root).textContent=granted?'Постоянное хранилище разрешено':'Браузер не предоставил постоянное хранилище.';});
       }else{
-        root.innerHTML=`<div class="about-logo"><img src="/assets/leaf.svg" alt=""><div><h2>GreenOS 2.0</h2><small>LINUX EDITION</small></div></div><p>Рабочий стол в браузере с настоящим Linux внутри виртуальной машины x86.</p><div class="setting-line"><strong>Эмулятор</strong><span class="mono">v86 · WebAssembly</span></div><div class="setting-line"><strong>Linux</strong><span>Buildroot 6.8 / Tiny Core 11</span></div><div class="setting-line"><strong>Архитектура</strong><span>x86, 32 бита</span></div><div class="setting-line"><strong>Терминал</strong><span>xterm.js 5.5.0</span></div><p style="font-size:11px;margin-top:20px">GreenOS — браузерная оболочка и среда запуска. Ядро Linux исполняется в v86. Бинарные программы запускаются внутри гостевой системы; установка пакетов зависит от выбранного дистрибутива и настройки сети.</p><p style="font-size:11px"><a href="https://github.com/copy/v86" target="_blank" rel="noreferrer">v86 ↗</a> · <a href="https://www.tinycorelinux.net/" target="_blank" rel="noreferrer">Tiny Core ↗</a> · <a href="https://buildroot.org/" target="_blank" rel="noreferrer">Buildroot ↗</a></p>`;
+        root.innerHTML=`<div class="about-logo"><img src="/assets/leaf.svg" alt=""><div><h2>GreenOS ${GREENOS_VERSION}</h2><small>LINUX EDITION</small></div></div><p>Рабочий стол в браузере с настоящим Linux внутри виртуальной машины x86.</p><div class="setting-line"><strong>Эмулятор</strong><span class="mono">v86 · WebAssembly</span></div><div class="setting-line"><strong>Linux</strong><span>Buildroot 6.8 / Tiny Core 11</span></div><div class="setting-line"><strong>Архитектура</strong><span>x86, 32 бита</span></div><div class="setting-line"><strong>Терминал</strong><span>xterm.js 5.5.0</span></div><p style="font-size:11px;margin-top:20px">GreenOS — браузерная оболочка и среда запуска. Ядро Linux исполняется в v86. Бинарные программы запускаются внутри гостевой системы; установка пакетов зависит от выбранного дистрибутива и настройки сети.</p><p style="font-size:11px"><a href="https://github.com/copy/v86" target="_blank" rel="noreferrer">v86 ↗</a> · <a href="https://www.tinycorelinux.net/" target="_blank" rel="noreferrer">Tiny Core ↗</a> · <a href="https://buildroot.org/" target="_blank" rel="noreferrer">Buildroot ↗</a></p>`;
       }
     }
     $$('[data-tab]',win.body).forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();});render();
